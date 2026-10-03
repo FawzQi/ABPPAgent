@@ -69,6 +69,68 @@ Let me examine mainGame.cpp structure.
     })
   })
 
+  it('parses hybrid tool tags where opening is tool_call and closing is DSML invoke or calls', () => {
+    const hybrid1 = `<tool_call name="read_file">
+<｜｜DSML｜｜ parameter name="AbsolutePath" string="true">/home/faiq/mainGame.cpp</｜｜DSML｜｜ parameter>
+<｜｜DSML｜｜ parameter name="StartLine" string="false">1560</｜｜DSML｜｜ parameter>
+</｜｜DSML｜｜ invoke>`
+
+    const parsed1 = ToolCallParser.parse(hybrid1)
+    expect(parsed1.toolCalls.length).toBe(1)
+    expect(parsed1.toolCalls[0].name).toBe('read_file')
+    expect(parsed1.toolCalls[0].arguments).toEqual({
+      AbsolutePath: '/home/faiq/mainGame.cpp',
+      StartLine: 1560,
+    })
+
+    const hybrid2 = `<tool_call name="read_file">
+{
+  "AbsolutePath": "/home/faiq/mainGame.cpp",
+  "StartLine": 2154,
+  "EndLine": 2540
+}
+</｜｜DSML｜｜ calls>`
+
+    const parsed2 = ToolCallParser.parse(hybrid2)
+    expect(parsed2.toolCalls.length).toBe(1)
+    expect(parsed2.toolCalls[0].name).toBe('read_file')
+    expect(parsed2.toolCalls[0].arguments).toEqual({
+      AbsolutePath: '/home/faiq/mainGame.cpp',
+      StartLine: 2154,
+      EndLine: 2540,
+    })
+  })
+
+  it('handles abandoned unclosed tags followed by valid tool calls', () => {
+    const raw = `Let me read the control function.
+
+<tool_call name="read_file">
+
+read what file?
+The user is asking what file. Let me read mainGame.cpp.
+
+<tool_call name="read_file">
+{
+  "AbsolutePath": "/home/faiq/mainGame.cpp",
+  "StartLine": 2154
+}
+</tool_call>`
+
+    const parsed = ToolCallParser.parse(raw)
+    expect(parsed.toolCalls.length).toBe(1)
+    expect(parsed.toolCalls[0].name).toBe('read_file')
+    expect(parsed.toolCalls[0].arguments).toEqual({
+      AbsolutePath: '/home/faiq/mainGame.cpp',
+      StartLine: 2154,
+    })
+  })
+
+  it('detects tool call attempts even when broken', () => {
+    expect(ToolCallParser.hasToolCallAttempt('<tool_call name="read_file"> broken content')).toBe(true)
+    expect(ToolCallParser.hasToolCallAttempt('<||DSML|| invoke name="run_command">')).toBe(true)
+    expect(ToolCallParser.hasToolCallAttempt('Just plain conversational response with no tools')).toBe(false)
+  })
+
   it('formats tool results into XML tags for next turn', () => {
     const result = {
       toolCallId: 'call_123',

@@ -92,8 +92,13 @@ export class AgentOrchestrator {
    */
   private static async runLoop(session: Session, prompt: string, signal: AbortSignal): Promise<void> {
     let currentPrompt: string | null = prompt
+    let recoveryAttempts = 0
 
     while (currentPrompt && !signal.aborted) {
+      // Pacing: 1 second delay for each interaction to let event loops settle
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      if (signal.aborted) break
+
       // 1. Deliver prompt to web chat and wait for scraped response
       const sendResult = await sendToWebChat(session.targetId, currentPrompt)
       if (signal.aborted) break
@@ -117,8 +122,25 @@ export class AgentOrchestrator {
       SessionRepository.saveTimelineItem(assistantItem)
       this.callbacks?.onTimelineUpdate(assistantItem)
 
-      // If no tool calls, task is complete
+      // 3. Format error recovery check
       if (parsed.toolCalls.length === 0) {
+        if (ToolCallParser.hasToolCallAttempt(sendResult.text) && recoveryAttempts < 3) {
+          recoveryAttempts++
+          const nudgeItem: TimelineItem = {
+            id: `msg_${Date.now()}_nudge`,
+            sessionId: session.id,
+            role: 'assistant',
+            content: `⚠️ Tool call formatting error detected in response. Automatically requesting re-formatting (attempt ${recoveryAttempts}/3)...`,
+            timestamp: Date.now(),
+          }
+          SessionRepository.saveTimelineItem(nudgeItem)
+          this.callbacks?.onTimelineUpdate(nudgeItem)
+
+          currentPrompt = `<format_error>\nYour previous message attempted to invoke a tool but the tool format was invalid, unclosed, or had malformed arguments.\nPlease re-issue your tool call strictly using the valid format with JSON arguments:\n<tool_call name="tool_name">\n{\n  "parameter_name": "parameter_value"\n}\n</tool_call>\n</format_error>`
+          continue
+        }
+
+        // If no tool calls and no attempt, task is complete
         session.status = 'idle'
         session.updatedAt = Date.now()
         SessionRepository.saveSession(session)
@@ -126,7 +148,10 @@ export class AgentOrchestrator {
         break
       }
 
-      // 3. Execute each tool call sequentially
+      // Reset recovery attempts on successful tool parse
+      recoveryAttempts = 0
+
+      // 4. Execute each tool call sequentially
       const toolResults: ToolResult[] = []
 
       for (const call of parsed.toolCalls) {
@@ -137,7 +162,7 @@ export class AgentOrchestrator {
 
       if (signal.aborted) break
 
-      // 4. Format tool results into XML for subsequent turn
+      // 5. Format tool results into XML for subsequent turn
       const nextTurnXml = toolResults.map((r) => ToolCallParser.formatToolResult(r)).join('\n\n')
       currentPrompt = nextTurnXml
     }

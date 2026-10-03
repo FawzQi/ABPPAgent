@@ -6,10 +6,88 @@ export interface ParsedAssistantResponse {
   toolCalls: ToolCall[]
 }
 
+function extractArgsFromBody(body: string): Record<string, any> {
+  const args: Record<string, any> = {}
+
+  // 1. Try DSML parameter extraction: <||DSML|| parameter name="...">value</||DSML|| parameter>
+  const paramRegex = /<[|｜]{2}DSML[|｜]{2}\s*parameter\s+name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/[|｜]{2}DSML[|｜]{2}\s*parameter>/gi
+  let paramMatch: RegExpExecArray | null
+  let foundParam = false
+
+  while ((paramMatch = paramRegex.exec(body)) !== null) {
+    foundParam = true
+    const paramName = paramMatch[1].trim()
+    const rawVal = paramMatch[2].trim()
+
+    if (rawVal === 'true') {
+      args[paramName] = true
+    } else if (rawVal === 'false') {
+      args[paramName] = false
+    } else if (/^-?\d+$/.test(rawVal)) {
+      args[paramName] = parseInt(rawVal, 10)
+    } else if (/^-?\d+\.\d+$/.test(rawVal)) {
+      args[paramName] = parseFloat(rawVal)
+    } else {
+      try {
+        args[paramName] = JSON.parse(rawVal)
+      } catch {
+        args[paramName] = rawVal
+      }
+    }
+  }
+
+  if (foundParam && Object.keys(args).length > 0) {
+    return args
+  }
+
+  // 2. Try JSON object extraction: substring between first { and last }
+  const firstBrace = body.indexOf('{')
+  const lastBrace = body.lastIndexOf('}')
+
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const jsonStr = body.slice(firstBrace, lastBrace + 1).trim()
+    try {
+      return JSON.parse(jsonStr)
+    } catch {
+      const sanitized = jsonStr
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/, '')
+        .replace(/,\s*([}\]])/g, '$1')
+        .trim()
+      try {
+        return JSON.parse(sanitized)
+      } catch {
+        const kvRegex = /"([^"]+)"\s*:\s*("(?:\\.|[^"\\])*"|\d+|true|false)/g
+        let kvMatch: RegExpExecArray | null
+        while ((kvMatch = kvRegex.exec(jsonStr)) !== null) {
+          try {
+            args[kvMatch[1]] = JSON.parse(kvMatch[2])
+          } catch {
+            args[kvMatch[1]] = kvMatch[2]
+          }
+        }
+        if (Object.keys(args).length > 0) return args
+      }
+    }
+  }
+
+  return args
+}
+
 /**
- * Robust XML and DSML parser for extracting <thought>, <tool_call>, and DeepSeek DSML tool calls.
+ * Universal XML & DSML fuzzy parser for extracting <thought> and <tool_call> tags.
  */
 export class ToolCallParser {
+  /**
+   * Check if a raw response contains any attempt to invoke a tool,
+   * even if formatted incorrectly or unclosed.
+   */
+  static hasToolCallAttempt(rawText: string): boolean {
+    return /<(?:tool_call|[|｜]{2}DSML[|｜]{2}\s*(?:invoke|calls))|name=["'](?:run_command|read_file|write_file|replace_file_content|list_directory|ask_user)["']/i.test(
+      rawText,
+    )
+  }
+
   /**
    * Parse full assistant response text into message body, thinking trace, and tool calls.
    */
@@ -28,92 +106,61 @@ export class ToolCallParser {
       cleanText = cleanText.replace(thoughtRegex, '').trim()
     }
 
-    // 2. Extract standard XML tool calls: <tool_call name="...">...</tool_call>
-    const standardToolRegex = /<tool_call\s+name=["']([^"']+)["']>([\s\S]*?)<\/tool_call>/gi
-    let match: RegExpExecArray | null
+    // 2. Scan all tool block openings: <tool_call name="..."> or <||DSML|| invoke name="...">
+    const toolStartRegex = /<(?:tool_call|[|｜]{2}DSML[|｜]{2}\s*invoke)\s+name=["']([^"']+)["'][^>]*>/gi
+    const starts: { index: number; length: number; name: string; fullMatch: string }[] = []
+    let m: RegExpExecArray | null
 
-    while ((match = standardToolRegex.exec(cleanText)) !== null) {
-      const rawXml = match[0]
-      const name = match[1].trim()
-      const rawArgs = match[2].trim()
-
-      let parsedArgs: Record<string, any> = {}
-      if (rawArgs) {
-        try {
-          parsedArgs = JSON.parse(rawArgs)
-        } catch {
-          // If JSON parse fails, attempt basic cleanup (e.g. trailing commas or markdown code fences)
-          const sanitized = rawArgs
-            .replace(/^```(?:json)?\s*/i, '')
-            .replace(/\s*```$/, '')
-            .replace(/,\s*([}\]])/g, '$1')
-            .trim()
-          try {
-            parsedArgs = JSON.parse(sanitized)
-          } catch {
-            parsedArgs = { raw: rawArgs }
-          }
-        }
-      }
-
-      toolCalls.push({
-        id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        name,
-        arguments: parsedArgs,
-        rawXml,
+    while ((m = toolStartRegex.exec(cleanText)) !== null) {
+      starts.push({
+        index: m.index,
+        length: m[0].length,
+        name: m[1].trim(),
+        fullMatch: m[0],
       })
     }
 
-    // 3. Extract DeepSeek native DSML tool calls:
-    // <｜｜DSML｜｜ invoke name="...">...<｜｜DSML｜｜ parameter name="...">value</｜｜DSML｜｜ parameter>...</｜｜DSML｜｜ invoke>
-    // Handles both standard ASCII pipe '|' and Unicode fullwidth vertical bar '｜' (U+FF5C)
-    const dsmlInvokeRegex = /<[|｜]{2}DSML[|｜]{2}\s+invoke\s+name=["']([^"']+)["']>([\s\S]*?)<\/[|｜]{2}DSML[|｜]{2}\s+invoke>/gi
-    let dsmlMatch: RegExpExecArray | null
+    // 3. For each opening tag, determine boundary and extract arguments
+    for (let i = 0; i < starts.length; i++) {
+      const cur = starts[i]
+      const bodyStartIndex = cur.index + cur.length
+      const nextStart = i + 1 < starts.length ? starts[i + 1].index : cleanText.length
 
-    while ((dsmlMatch = dsmlInvokeRegex.exec(cleanText)) !== null) {
-      const rawXml = dsmlMatch[0]
-      const name = dsmlMatch[1].trim()
-      const body = dsmlMatch[2]
+      const chunk = cleanText.slice(bodyStartIndex, nextStart)
 
-      const parsedArgs: Record<string, any> = {}
-      const paramRegex = /<[|｜]{2}DSML[|｜]{2}\s+parameter\s+name=["']([^"']+)["'](?:\s+[^>]*)?>([\s\S]*?)<\/[|｜]{2}DSML[|｜]{2}\s+parameter>/gi
-      let paramMatch: RegExpExecArray | null
+      // Look for closing tag in this chunk: </tool_call> or </||DSML|| invoke> or </||DSML|| calls>
+      const closeRegex = /<\/(?:tool_call|[|｜]{2}DSML[|｜]{2}\s*(?:invoke|calls))>/i
+      const closeMatch = closeRegex.exec(chunk)
 
-      while ((paramMatch = paramRegex.exec(body)) !== null) {
-        const paramName = paramMatch[1].trim()
-        const rawVal = paramMatch[2].trim()
+      const body = closeMatch ? chunk.slice(0, closeMatch.index) : chunk
+      const parsedArgs = extractArgsFromBody(body)
 
-        if (rawVal === 'true') {
-          parsedArgs[paramName] = true
-        } else if (rawVal === 'false') {
-          parsedArgs[paramName] = false
-        } else if (/^-?\d+$/.test(rawVal)) {
-          parsedArgs[paramName] = parseInt(rawVal, 10)
-        } else if (/^-?\d+\.\d+$/.test(rawVal)) {
-          parsedArgs[paramName] = parseFloat(rawVal)
-        } else {
-          try {
-            parsedArgs[paramName] = JSON.parse(rawVal)
-          } catch {
-            parsedArgs[paramName] = rawVal
-          }
-        }
+      // Accept if arguments were extracted or if body is explicitly empty object
+      if (Object.keys(parsedArgs).length > 0 || body.trim() === '{}') {
+        toolCalls.push({
+          id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${i}`,
+          name: cur.name,
+          arguments: parsedArgs,
+          rawXml: cleanText.slice(
+            cur.index,
+            closeMatch ? bodyStartIndex + closeMatch.index + closeMatch[0].length : nextStart,
+          ),
+        })
       }
-
-      toolCalls.push({
-        id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        name,
-        arguments: parsedArgs,
-        rawXml,
-      })
     }
 
-    // 4. Clean user-facing text: strip XML tool calls and DSML tokens
+    // 4. Clean user-facing text: strip all tool blocks and formatting artifacts
     cleanText = cleanText
-      .replace(/<tool_call\s+name=["'][^"']+["']>[\s\S]*?<\/tool_call>/gi, '')
-      .replace(/<[|｜]{2}DSML[|｜]{2}\s+invoke[\s\S]*?<\/[|｜]{2}DSML[|｜]{2}\s+invoke>/gi, '')
+      .replace(
+        /<(?:tool_call|[|｜]{2}DSML[|｜]{2}\s*invoke)\s+name=["'][^"']+["'][\s\S]*?<\/(?:tool_call|[|｜]{2}DSML[|｜]{2}\s*(?:invoke|calls))>/gi,
+        '',
+      )
+      .replace(/<tool_call[\s\S]*?<\/tool_call>/gi, '')
+      .replace(/<[|｜]{2}DSML[|｜]{2}[\s\S]*?<\/[|｜]{2}DSML[|｜]{2}[^>]*>/gi, '')
       .replace(/<[|｜]{2}DSML[|｜]{2}[^>]*>/gi, '')
       .replace(/<\/[|｜]{2}DSML[|｜]{2}[^>]*>/gi, '')
+      .replace(/<tool_call\s+name=["'][^"']+["'][^>]*>/gi, '')
+      .replace(/<\/tool_call>/gi, '')
       .trim()
 
     return {
