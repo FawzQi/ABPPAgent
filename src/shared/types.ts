@@ -56,6 +56,53 @@ export interface DiffInfo {
   deletions: number
 }
 
+// Git Types
+export type GitFileStatusCode = 'added' | 'modified' | 'deleted' | 'renamed' | 'copied' | 'typechange' | 'conflicted'
+
+export interface GitFileChange {
+  path: string
+  status: GitFileStatusCode
+  oldPath?: string
+}
+
+export interface GitStatus {
+  branch: string | null
+  ahead: number
+  behind: number
+  staged: GitFileChange[]
+  unstaged: GitFileChange[]
+  untracked: string[]
+  conflicted: GitFileChange[]
+}
+
+export interface GitDiffContent {
+  original: string
+  modified: string
+  exists: boolean
+}
+
+export interface GitCommitResult {
+  commitHash: string
+  summary: string
+}
+
+// Custom Tools Configuration
+export interface CustomToolsConfig {
+  enableGitnexus: boolean
+  enableGrep: boolean
+  enableFullFile: boolean
+  enableRunCommand: boolean
+  enableFileMutation: boolean
+}
+
+export const DEFAULT_CUSTOM_TOOLS_CONFIG: CustomToolsConfig = {
+  enableGitnexus: true,
+  enableGrep: true,
+  enableFullFile: true,
+  enableRunCommand: true,
+  enableFileMutation: true,
+}
+
 export interface TimelineItem {
   id: string
   sessionId: string
@@ -87,6 +134,7 @@ export interface Session {
   workspacePath: string
   autoApprove: boolean
   status: 'idle' | 'running' | 'paused' | 'error'
+  customTools?: CustomToolsConfig
 }
 
 export interface WorkspaceFileChange {
@@ -124,6 +172,21 @@ export interface AgentApi {
   getFileContent: (filePath: string) => Promise<string>
   getModifiedFiles: (sessionId: string) => Promise<WorkspaceFileChange[]>
 
+  // Git & Source Control
+  gitGetStatus: (projectRoot: string) => Promise<GitStatus | null>
+  gitStageFile: (projectRoot: string, relativePath: string) => Promise<void>
+  gitStageAll: (projectRoot: string) => Promise<void>
+  gitUnstageFile: (projectRoot: string, relativePath: string) => Promise<void>
+  gitDiscardFile: (projectRoot: string, relativePath: string) => Promise<void>
+  gitDiscardAll: (projectRoot: string) => Promise<void>
+  gitCommit: (projectRoot: string, message: string) => Promise<GitCommitResult>
+  gitDiff: (projectRoot: string, relativePath: string, staged: boolean) => Promise<GitDiffContent>
+  gitInit: (projectRoot: string) => Promise<{ created: boolean }>
+
+  // Custom Tools Settings
+  updateCustomTools: (sessionId: string, config: CustomToolsConfig) => Promise<CustomToolsConfig>
+  getCustomTools: (sessionId: string) => Promise<CustomToolsConfig>
+
   // Events / Listeners
   onTimelineUpdate: (callback: (item: TimelineItem) => void) => () => void
   onSessionUpdate: (callback: (session: Session) => void) => () => void
@@ -137,3 +200,4 @@ declare global {
     agentApi: AgentApi
   }
 }
+

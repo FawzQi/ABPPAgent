@@ -962,6 +962,14 @@ const CLEAN_ASSISTANT_TEXT_FUNCTION = `
         if (trimmed.length < 30 && UI_LABEL.test(trimmed)) continue;
         kept.push(line);
       }
+      while (
+        kept.length > 1 &&
+        /^(server is (?:temporarily unavailable|busy|too busy|overloaded)|the server is (?:busy|overloaded)|system is busy|服务器繁忙[，。]?|服务繁忙[，。]?|too many requests\\.?|please try again( later)?\\.?)$/i.test(
+          kept[0].trim(),
+        )
+      ) {
+        kept.shift();
+      }
       return kept.join('\\n').trim();
     } catch {
       return (node.innerText || '').trim();
@@ -1027,7 +1035,8 @@ function buildScript(target: WebChatTarget, prompt: string): string {
     document.execCommand('insertText', false, prompt);
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
   }
-  await sleep(400);
+  // Pacing: Wait 1 second after putting prompt into input before clicking send
+  await sleep(1000);
   if (aborted()) return { ok: false, error: 'Cancelled.' };
 
   // Snapshot the transcript before submitting so the loop below only ever
@@ -1054,6 +1063,9 @@ function buildScript(target: WebChatTarget, prompt: string): string {
     }));
     fire('keydown'); fire('keypress'); fire('keyup');
   }
+
+  // Pacing: Wait 1 second after clicking send before polling/monitoring
+  await sleep(1000);
 
   const isGenerating = () => {
     for (const s of stopSels) {
@@ -1083,8 +1095,15 @@ function buildScript(target: WebChatTarget, prompt: string): string {
     const btns = document.querySelectorAll('button, [role="button"]');
     for (const b of btns) {
       if (b.offsetParent === null) continue;
+      if (b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
       const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '') + ' ' + (b.textContent || '')).trim().toLowerCase();
-      if (/^(continue|resume|continue generating|keep going|继续|继续生成|继续思考)$/i.test(label) || /^(continue|resume|继续)$/i.test((b.textContent || '').trim())) return b;
+      if (/google|apple|github|email|account|login|sign in|sign up|cookie|policy|terms/i.test(label)) continue;
+      if (
+        /\\b(continue|resume|keep going|continue generating|continue thinking)\\b/i.test(label) ||
+        /(继续生成|继续思考|继续)/.test(label)
+      ) {
+        return b;
+      }
     }
     return null;
   };
@@ -1159,6 +1178,7 @@ function buildScript(target: WebChatTarget, prompt: string): string {
     if (pauseBtn) {
       try {
         pauseBtn.click();
+        stableMs = 0;
         window.__AnythingButProPlanWebChatStatus = 'working';
         await sleep(1000);
         continue;
@@ -1181,6 +1201,8 @@ function buildScript(target: WebChatTarget, prompt: string): string {
     ) {
       stableMs += 500;
       if (stableMs >= 2000) {
+        // Pacing: Wait 1 second after response finishes streaming before returning
+        await sleep(1000);
         // The reply has settled. Report it as stable: true so the main
         // process knows to attempt the copy-to-clipboard upgrade before
         // falling back to this text.
@@ -1875,6 +1897,9 @@ async function waitForUploadSettle(
   }
 }
 
+const lastPromptSentTimes = new Map<WebChatTargetId, number>();
+const WEB_CHAT_PROMPT_COOLDOWN_MS = 1000;
+
 export async function sendToWebChat(
   targetId: WebChatTargetId,
   prompt: string,
@@ -1882,6 +1907,15 @@ export async function sendToWebChat(
   const target = findTarget(targetId);
   if (!target)
     return { ok: false, error: `Unknown web chat target: ${targetId}` };
+
+  // Enforce 1-second cooldown between sending prompts to web chat LLM
+  const lastTime = lastPromptSentTimes.get(targetId) ?? 0;
+  const elapsed = Date.now() - lastTime;
+  if (elapsed < WEB_CHAT_PROMPT_COOLDOWN_MS) {
+    const waitMs = WEB_CHAT_PROMPT_COOLDOWN_MS - elapsed;
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  lastPromptSentTimes.set(targetId, Date.now());
 
   let win: BrowserWindow;
   try {
@@ -1893,30 +1927,35 @@ export async function sendToWebChat(
     };
   }
 
-  const maxRetries = 2;
+  const maxRetries = 3;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const result = await deliverPrompt(win, target, prompt);
 
     const isTransientError =
       !result.ok &&
       typeof result.error === "string" &&
-      /server is temporarily unavailable|network error|failed to fetch|rate limit|please try again/i.test(
+      /server is (?:temporarily unavailable|busy|too busy|overloaded)|the server is (?:busy|overloaded)|system is busy|服务器繁忙|服务繁忙|network error|failed to fetch|rate limit|too many requests|please try again/i.test(
         result.error,
       );
 
     const isTransientText =
       result.ok &&
       typeof result.text === "string" &&
-      result.text.length < 200 &&
-      /server is temporarily unavailable|服务器繁忙|network error|please try again/i.test(
-        result.text,
-      );
+      (/server is (?:temporarily unavailable|busy|too busy|overloaded)|the server is (?:busy|overloaded)|system is busy|服务器繁忙|服务繁忙|rate limit|too many requests/i.test(
+        result.text.trim(),
+      ) ||
+        /^(?:error:?\s*)?(?:server|system|network|please try again)/i.test(
+          result.text.trim(),
+        )) &&
+      result.text.trim().length < 500 &&
+      !/<(?:tool_call|[|｜]{2}DSML[|｜]{2})/i.test(result.text);
 
     if ((isTransientError || isTransientText) && attempt < maxRetries) {
+      const backoffMs = (attempt + 1) * 5000;
       console.warn(
-        `[web-chat] Transient error on ${target.label} (attempt ${attempt + 1}/${maxRetries + 1}). Retrying in 3s...`,
+        `[web-chat] Transient error on ${target.label} (attempt ${attempt + 1}/${maxRetries + 1}). Retrying in ${backoffMs / 1000}s...`,
       );
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
       continue;
     }
 

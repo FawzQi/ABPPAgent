@@ -24,6 +24,21 @@ export const IPC_CHANNELS = {
   GET_FILE_CONTENT: 'agent:get-file-content',
   GET_MODIFIED_FILES: 'agent:get-modified-files',
 
+  // Git & Source Control
+  GIT_GET_STATUS: 'agent:git-get-status',
+  GIT_STAGE_FILE: 'agent:git-stage-file',
+  GIT_STAGE_ALL: 'agent:git-stage-all',
+  GIT_UNSTAGE_FILE: 'agent:git-unstage-file',
+  GIT_DISCARD_FILE: 'agent:git-discard-file',
+  GIT_DISCARD_ALL: 'agent:git-discard-all',
+  GIT_COMMIT: 'agent:git-commit',
+  GIT_DIFF: 'agent:git-diff',
+  GIT_INIT: 'agent:git-init',
+
+  // Custom Tools Settings
+  UPDATE_CUSTOM_TOOLS: 'agent:update-custom-tools',
+  GET_CUSTOM_TOOLS: 'agent:get-custom-tools',
+
   // Push Events (Main -> Renderer)
   EVENT_TIMELINE_UPDATE: 'agent-event:timeline-update',
   EVENT_SESSION_UPDATE: 'agent-event:session-update',

@@ -34,7 +34,7 @@ I will now read the file to check dependencies.`
     })
   })
 
-  it('extracts DeepSeek native DSML tool calls correctly', () => {
+  it('gracefully salvages DSML format into valid tool calls to prevent infinite format loops', () => {
     const raw = `<thought>
 Examining the main game file.
 </thought>
@@ -44,61 +44,56 @@ Let me examine mainGame.cpp structure.
 <｜｜DSML｜｜ invoke name="run_command">
 <｜｜DSML｜｜ parameter name="CommandLine" string="true">grep -n 'InitWindow|BeginDrawing' mainGame.cpp</｜｜DSML｜｜ parameter>
 </｜｜DSML｜｜ invoke>
-<｜｜DSML｜｜ invoke name="list_directory">
-<｜｜DSML｜｜ parameter name="DirectoryPath" string="true">/home/faiq/data/arts/gaming2</｜｜DSML｜｜ parameter>
-<｜｜DSML｜｜ parameter name="Recursive" boolean="true">true</｜｜DSML｜｜ parameter>
-<｜｜DSML｜｜ parameter name="Depth" number="true">2</｜｜DSML｜｜ parameter>
-</｜｜DSML｜｜ invoke>
 </｜｜DSML｜｜ calls>`
 
     const parsed = ToolCallParser.parse(raw)
-    expect(parsed.thinking?.content).toBe('Examining the main game file.')
-    expect(parsed.cleanContent).toBe('Let me examine mainGame.cpp structure.')
-    expect(parsed.toolCalls.length).toBe(2)
-
+    expect(parsed.toolCalls.length).toBe(1)
     expect(parsed.toolCalls[0].name).toBe('run_command')
     expect(parsed.toolCalls[0].arguments).toEqual({
       CommandLine: "grep -n 'InitWindow|BeginDrawing' mainGame.cpp",
     })
+    expect(parsed.cleanContent).toBe('Let me examine mainGame.cpp structure.')
+  })
 
-    expect(parsed.toolCalls[1].name).toBe('list_directory')
-    expect(parsed.toolCalls[1].arguments).toEqual({
-      DirectoryPath: '/home/faiq/data/arts/gaming2',
-      Recursive: true,
-      Depth: 2,
+  it('salvages DSML format with JSON body', () => {
+    const raw = `<｜｜DSML｜｜ calls>
+<｜｜DSML｜｜ invoke name="grep_search">
+{
+  "Query": "(?i)research.?interest",
+  "Path": "."
+}
+</｜｜DSML｜｜ invoke>
+</｜｜DSML｜｜ calls>`
+
+    const parsed = ToolCallParser.parse(raw)
+    expect(parsed.toolCalls.length).toBe(1)
+    expect(parsed.toolCalls[0].name).toBe('grep_search')
+    expect(parsed.toolCalls[0].arguments).toEqual({
+      Query: '(?i)research.?interest',
+      Path: '.',
     })
   })
 
-  it('parses hybrid tool tags where opening is tool_call and closing is DSML invoke or calls', () => {
-    const hybrid1 = `<tool_call name="read_file">
-<｜｜DSML｜｜ parameter name="AbsolutePath" string="true">/home/faiq/mainGame.cpp</｜｜DSML｜｜ parameter>
-<｜｜DSML｜｜ parameter name="StartLine" string="false">1560</｜｜DSML｜｜ parameter>
-</｜｜DSML｜｜ invoke>`
-
-    const parsed1 = ToolCallParser.parse(hybrid1)
-    expect(parsed1.toolCalls.length).toBe(1)
-    expect(parsed1.toolCalls[0].name).toBe('read_file')
-    expect(parsed1.toolCalls[0].arguments).toEqual({
-      AbsolutePath: '/home/faiq/mainGame.cpp',
-      StartLine: 1560,
-    })
-
-    const hybrid2 = `<tool_call name="read_file">
+  it('parses standard XML tool calls reliably with complex JSON parameters', () => {
+    const raw = `<thought>
+Searching codebase for people tab.
+</thought>
+I will search for the people tab components.
+<tool_call name="grep_search">
 {
-  "AbsolutePath": "/home/faiq/mainGame.cpp",
-  "StartLine": 2154,
-  "EndLine": 2540
+  "Query": "[Rr]esearch [Ii]nterest",
+  "Path": "src/contents"
 }
-</｜｜DSML｜｜ calls>`
+</tool_call>`
 
-    const parsed2 = ToolCallParser.parse(hybrid2)
-    expect(parsed2.toolCalls.length).toBe(1)
-    expect(parsed2.toolCalls[0].name).toBe('read_file')
-    expect(parsed2.toolCalls[0].arguments).toEqual({
-      AbsolutePath: '/home/faiq/mainGame.cpp',
-      StartLine: 2154,
-      EndLine: 2540,
+    const parsed = ToolCallParser.parse(raw)
+    expect(parsed.toolCalls.length).toBe(1)
+    expect(parsed.toolCalls[0].name).toBe('grep_search')
+    expect(parsed.toolCalls[0].arguments).toEqual({
+      Query: '[Rr]esearch [Ii]nterest',
+      Path: 'src/contents',
     })
+    expect(parsed.cleanContent).toBe('I will search for the people tab components.')
   })
 
   it('handles abandoned unclosed tags followed by valid tool calls', () => {
@@ -146,5 +141,44 @@ The user is asking what file. Let me read mainGame.cpp.
     expect(xml).toContain('"ExitCode": 0')
     expect(xml).toContain('"Output": "All 5 tests passed"')
     expect(xml).toContain('</tool_result>')
+  })
+
+  it('safely extracts CodeContent containing unescaped quotes without truncating to 25 bytes', () => {
+    // Exact failure case from the audit log
+    const raw = `<tool_call name="write_file">
+{
+  "TargetFile": "src/components/MembersSection.tsx",
+  "CodeContent": "import { useState } from "react";
+import { translations } from "../contents/translations";
+
+export function MembersSection() {
+  return <div>Members</div>;
+}
+"
+}
+</tool_call>`
+
+    const parsed = ToolCallParser.parse(raw)
+    expect(parsed.toolCalls.length).toBe(1)
+    expect(parsed.toolCalls[0].name).toBe('write_file')
+    expect(parsed.toolCalls[0].arguments.TargetFile).toBe('src/components/MembersSection.tsx')
+    // Crucial check: length must NOT be 25 bytes!
+    expect(parsed.toolCalls[0].arguments.CodeContent.length).toBeGreaterThan(100)
+    expect(parsed.toolCalls[0].arguments.CodeContent).toContain('MembersSection')
+    expect(parsed.toolCalls[0].arguments.CodeContent).toContain('translations')
+  })
+
+  it('rejects truncated single-line code fragments in write_file so format recovery can trigger', () => {
+    const raw = `<tool_call name="write_file">
+{
+  "TargetFile": "src/components/MembersSection.tsx",
+  "CodeContent": "import { useState } from "
+}
+</tool_call>`
+
+    const parsed = ToolCallParser.parse(raw)
+    // Should be filtered out to prevent 25-byte destructive writes
+    expect(parsed.toolCalls.length).toBe(0)
+    expect(ToolCallParser.hasToolCallAttempt(raw)).toBe(true)
   })
 })

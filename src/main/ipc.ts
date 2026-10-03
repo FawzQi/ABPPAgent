@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import { dialog, ipcMain, BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
-import type { Session, WebChatTargetId, WebChatTargetInfo } from '@shared/types'
+import type { Session, WebChatTargetId, WebChatTargetInfo, CustomToolsConfig } from '@shared/types'
+import { DEFAULT_CUSTOM_TOOLS_CONFIG } from '@shared/types'
 import { SessionRepository } from './services/db/repository'
 import {
   listWebChatTargets,
@@ -11,6 +12,7 @@ import {
 } from './services/web-chat/web-chat-service'
 import { AgentOrchestrator } from './services/agent/orchestrator'
 import { DirectoryExplorer } from './services/tools/explorer'
+import * as GitService from './services/git/git-service'
 
 export function registerIpcHandlers(): void {
   // Broadcast helper
@@ -151,5 +153,58 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.GET_MODIFIED_FILES, (_e, sessionId: string) => {
     return SessionRepository.getModifiedFiles(sessionId)
+  })
+
+  // 5. Git & Source Control
+  ipcMain.handle(IPC_CHANNELS.GIT_GET_STATUS, async (_e, projectRoot: string) => {
+    return GitService.getStatus(projectRoot)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GIT_STAGE_FILE, async (_e, projectRoot: string, relativePath: string) => {
+    return GitService.stageFile(projectRoot, relativePath)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GIT_STAGE_ALL, async (_e, projectRoot: string) => {
+    return GitService.stageAllFiles(projectRoot)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GIT_UNSTAGE_FILE, async (_e, projectRoot: string, relativePath: string) => {
+    return GitService.unstageFile(projectRoot, relativePath)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GIT_DISCARD_FILE, async (_e, projectRoot: string, relativePath: string) => {
+    return GitService.discardFile(projectRoot, relativePath)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GIT_DISCARD_ALL, async (_e, projectRoot: string) => {
+    return GitService.discardAllFiles(projectRoot)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GIT_COMMIT, async (_e, projectRoot: string, message: string) => {
+    return GitService.commitChanges(projectRoot, message)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GIT_DIFF, async (_e, projectRoot: string, relativePath: string, staged: boolean) => {
+    return GitService.getDiffContent(projectRoot, relativePath, staged)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GIT_INIT, async (_e, projectRoot: string) => {
+    return GitService.initRepository(projectRoot)
+  })
+
+  // 6. Custom Tools Settings
+  ipcMain.handle(IPC_CHANNELS.UPDATE_CUSTOM_TOOLS, async (_e, sessionId: string, config: CustomToolsConfig) => {
+    const session = SessionRepository.getSessionById(sessionId)
+    if (!session) throw new Error(`Session ${sessionId} not found`)
+    session.customTools = config
+    session.updatedAt = Date.now()
+    SessionRepository.saveSession(session)
+    broadcast(IPC_CHANNELS.EVENT_SESSION_UPDATE, session)
+    return config
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GET_CUSTOM_TOOLS, async (_e, sessionId: string) => {
+    const session = SessionRepository.getSessionById(sessionId)
+    return session?.customTools || DEFAULT_CUSTOM_TOOLS_CONFIG
   })
 }

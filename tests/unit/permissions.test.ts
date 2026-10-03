@@ -45,4 +45,36 @@ describe('PermissionGateway', () => {
     expect(res.requiresApproval).toBe(true)
     expect(res.isDangerous).toBe(true)
   })
+
+  it('marks tools as isDisabled when disabled in CustomToolsConfig', () => {
+    const gitnexusTool: ToolCall = {
+      id: '5',
+      name: 'gitnexus_query',
+      arguments: { Query: 'search' },
+    }
+    const res = PermissionGateway.evaluate(gitnexusTool, true, {
+      enableGitnexus: false,
+      enableGrep: true,
+      enableFullFile: true,
+      enableRunCommand: true,
+      enableFileMutation: true,
+    })
+    expect(res.isDisabled).toBe(true)
+  })
+
+  it('marks full file tools as isDisabled when enableFullFile is false', () => {
+    const fullFileTool: ToolCall = {
+      id: '6',
+      name: 'read_file_full',
+      arguments: { AbsolutePath: '/foo/bar.txt' },
+    }
+    const res = PermissionGateway.evaluate(fullFileTool, true, {
+      enableGitnexus: true,
+      enableGrep: true,
+      enableFullFile: false,
+      enableRunCommand: true,
+      enableFileMutation: true,
+    })
+    expect(res.isDisabled).toBe(true)
+  })
 })

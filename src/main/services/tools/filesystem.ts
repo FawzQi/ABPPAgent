@@ -98,8 +98,23 @@ export class FilesystemTools {
     return this.computeDiff(filePath, oldContent, newContent)
   }
 
+  private static shadowBackups = new Map<string, string>()
+
+  static getShadowBackup(filePath: string): string | undefined {
+    return this.shadowBackups.get(filePath)
+  }
+
+  static restoreShadowBackup(filePath: string): boolean {
+    const backup = this.shadowBackups.get(filePath)
+    if (backup !== undefined) {
+      fs.writeFileSync(filePath, backup, 'utf-8')
+      return true
+    }
+    return false
+  }
+
   /**
-   * Apply write_file to disk.
+   * Apply write_file to disk with safety guardrails against catastrophic truncation.
    */
   static writeFile(toolCallId: string, filePath: string, codeContent: string, overwrite: boolean = true): ToolResult {
     try {
@@ -109,6 +124,28 @@ export class FilesystemTools {
           name: 'write_file',
           output: `Error: File already exists and overwrite is false: ${filePath}`,
           isError: true,
+        }
+      }
+
+      // Safety Guardrail: Prevent silent file corruption/truncation
+      if (fs.existsSync(filePath)) {
+        try {
+          const stats = fs.statSync(filePath)
+          // If existing file is substantial (> 400 bytes) and incoming content is suspiciously small (< 100 bytes and < 15% of existing size)
+          if (stats.size > 400 && codeContent.length < 100 && codeContent.length < stats.size * 0.15) {
+            return {
+              toolCallId,
+              name: 'write_file',
+              output: `Safety Guardrail: Overwrite rejected! Target file '${filePath}' is ${stats.size} bytes, but incoming CodeContent is only ${codeContent.length} bytes (likely truncated due to unescaped quotes in JSON). The existing file was NOT modified. Please re-send your complete code or use replace_file_content.`,
+              isError: true,
+            }
+          }
+
+          // Save shadow backup of previous version before overwriting
+          const oldContent = fs.readFileSync(filePath, 'utf-8')
+          this.shadowBackups.set(filePath, oldContent)
+        } catch {
+          // ignore stat error
         }
       }
 

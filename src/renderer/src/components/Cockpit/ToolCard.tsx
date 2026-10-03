@@ -14,6 +14,7 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
   const { approveTool, rejectTool, respondToUserInput } = useSessionStore()
   const [isOutputExpanded, setIsOutputExpanded] = useState(false)
   const [customInput, setCustomInput] = useState('')
+  const [submittingAnswer, setSubmittingAnswer] = useState<string | null>(null)
 
   if (!toolCall) return null
 
@@ -70,11 +71,53 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
 
   // 3. User Input (ask_user)
   if (name === 'ask_user') {
-    const question = args.Question || 'The agent requested your input:'
-    const options: string[] = args.Options || []
+    const question = args?.Question || args?.question || 'The agent requested your input:'
+    const rawOptions = args?.Options || args?.options
+    const options: string[] = Array.isArray(rawOptions)
+      ? rawOptions.map((opt) => String(opt))
+      : typeof rawOptions === 'string'
+        ? rawOptions.split(/,\s*|\n/).map((s) => s.trim()).filter(Boolean)
+        : []
+
+    const finalAnswer = result?.output || submittingAnswer
+
+    // Completed state feedback
+    if (finalAnswer) {
+      return (
+        <div className="rounded border border-emerald-800/60 bg-emerald-950/20 p-3 my-2 text-xs transition-all duration-300">
+          <div className="flex items-center justify-between gap-2 text-slate-300 font-medium mb-1.5">
+            <div className="flex items-center gap-2 text-emerald-300 font-semibold">
+              <CheckCircle size={15} className="text-emerald-400" />
+              <span>{question}</span>
+            </div>
+            <span className="text-[11px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-2 py-0.5 rounded flex items-center gap-1">
+              ✓ Answered
+            </span>
+          </div>
+          <div className="mt-2.5 pl-6 flex items-center gap-2">
+            <span className="text-slate-400 text-xs">Response sent:</span>
+            <span className="bg-emerald-900/50 border border-emerald-700/60 text-emerald-200 px-3 py-1 rounded font-medium shadow-sm">
+              {finalAnswer}
+            </span>
+          </div>
+        </div>
+      )
+    }
+
+    const handleSelectOption = (opt: string) => {
+      setSubmittingAnswer(opt)
+      respondToUserInput(id, opt)
+    }
+
+    const handleCustomSubmit = () => {
+      const trimmed = customInput.trim()
+      if (!trimmed) return
+      setSubmittingAnswer(trimmed)
+      respondToUserInput(id, trimmed)
+    }
 
     return (
-      <div className="rounded border border-indigo-800 bg-indigo-950/30 p-3 my-2 text-xs">
+      <div className="rounded border border-indigo-800 bg-indigo-950/30 p-3 my-2 text-xs transition-all">
         <div className="flex items-center gap-2 text-indigo-300 font-semibold mb-2">
           <HelpCircle size={15} className="text-indigo-400" />
           <span>{question}</span>
@@ -85,8 +128,8 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
             {options.map((opt, i) => (
               <button
                 key={i}
-                onClick={() => respondToUserInput(id, opt)}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded transition cursor-pointer font-medium"
+                onClick={() => handleSelectOption(opt)}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded transition cursor-pointer font-medium active:scale-95"
               >
                 {opt}
               </button>
@@ -100,17 +143,17 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
             value={customInput}
             onChange={(e) => setCustomInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && customInput.trim()) {
-                respondToUserInput(id, customInput.trim())
+              if (e.key === 'Enter') {
+                handleCustomSubmit()
               }
             }}
             placeholder="Type your response..."
             className="flex-1 bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
           />
           <button
-            onClick={() => customInput.trim() && respondToUserInput(id, customInput.trim())}
+            onClick={handleCustomSubmit}
             disabled={!customInput.trim()}
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-3 py-1 rounded transition cursor-pointer font-medium"
+            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-3 py-1 rounded transition cursor-pointer font-medium active:scale-95"
           >
             Reply
           </button>

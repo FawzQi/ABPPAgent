@@ -1,8 +1,10 @@
-import type { ToolCall } from '@shared/types'
+import type { ToolCall, CustomToolsConfig } from '@shared/types'
+import { DEFAULT_CUSTOM_TOOLS_CONFIG } from '@shared/types'
 
 export interface PermissionCheckResult {
   requiresApproval: boolean
   isDangerous: boolean
+  isDisabled?: boolean
   reason?: string
 }
 
@@ -18,22 +20,51 @@ const DESTRUCTIVE_COMMAND_PATTERNS = [
 
 export class PermissionGateway {
   /**
-   * Check if a tool call requires user confirmation before execution.
+   * Check if a tool call requires user confirmation before execution or if it's disabled.
    */
-  static evaluate(toolCall: ToolCall, autoApproveMode: boolean = false): PermissionCheckResult {
+  static evaluate(
+    toolCall: ToolCall,
+    autoApproveMode: boolean = false,
+    customTools: CustomToolsConfig = DEFAULT_CUSTOM_TOOLS_CONFIG
+  ): PermissionCheckResult {
     const { name, arguments: args } = toolCall
 
-    // 1. Safe read-only operations
-    if (name === 'read_file' || name === 'list_directory') {
+    // 1. Tool enablement checks
+    if (name === 'run_command' && !customTools.enableRunCommand) {
+      return { requiresApproval: false, isDangerous: false, isDisabled: true, reason: 'Terminal command execution is disabled.' }
+    }
+    if ((name === 'write_file' || name === 'replace_file_content') && !customTools.enableFileMutation) {
+      return { requiresApproval: false, isDangerous: false, isDisabled: true, reason: 'File mutation tools are disabled.' }
+    }
+    if ((name === 'read_file_full' || name === 'copy_file_to_chat') && !customTools.enableFullFile) {
+      return { requiresApproval: false, isDangerous: false, isDisabled: true, reason: 'Full file inspection tools are disabled.' }
+    }
+    if ((name === 'gitnexus_query' || name === 'gitnexus_context') && !customTools.enableGitnexus) {
+      return { requiresApproval: false, isDangerous: false, isDisabled: true, reason: 'GitNexus tools are disabled.' }
+    }
+    if (name === 'grep_search' && !customTools.enableGrep) {
+      return { requiresApproval: false, isDangerous: false, isDisabled: true, reason: 'Grep search tool is disabled.' }
+    }
+
+    // 2. Safe read-only operations
+    if (
+      name === 'read_file' ||
+      name === 'read_file_full' ||
+      name === 'copy_file_to_chat' ||
+      name === 'list_directory' ||
+      name === 'gitnexus_query' ||
+      name === 'gitnexus_context' ||
+      name === 'grep_search'
+    ) {
       return { requiresApproval: false, isDangerous: false }
     }
 
-    // 2. Interactive user inputs
+    // 3. Interactive user inputs
     if (name === 'ask_user') {
       return { requiresApproval: false, isDangerous: false }
     }
 
-    // 3. Command execution checks
+    // 4. Command execution checks
     if (name === 'run_command') {
       const command = (args.CommandLine || '').trim()
       const isDangerous = DESTRUCTIVE_COMMAND_PATTERNS.some((pattern) => pattern.test(command))
@@ -57,7 +88,7 @@ export class PermissionGateway {
       }
     }
 
-    // 4. File mutation operations
+    // 5. File mutation operations
     if (name === 'write_file' || name === 'replace_file_content') {
       if (autoApproveMode) {
         return { requiresApproval: false, isDangerous: false }

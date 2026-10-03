@@ -32,6 +32,28 @@ const agentApi: AgentApi = {
   getFileContent: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.GET_FILE_CONTENT, filePath),
   getModifiedFiles: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.GET_MODIFIED_FILES, sessionId),
 
+  // Git & Source Control
+  gitGetStatus: (projectRoot: string) => ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_STATUS, projectRoot),
+  gitStageFile: (projectRoot: string, relativePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_STAGE_FILE, projectRoot, relativePath),
+  gitStageAll: (projectRoot: string) => ipcRenderer.invoke(IPC_CHANNELS.GIT_STAGE_ALL, projectRoot),
+  gitUnstageFile: (projectRoot: string, relativePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_UNSTAGE_FILE, projectRoot, relativePath),
+  gitDiscardFile: (projectRoot: string, relativePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_DISCARD_FILE, projectRoot, relativePath),
+  gitDiscardAll: (projectRoot: string) => ipcRenderer.invoke(IPC_CHANNELS.GIT_DISCARD_ALL, projectRoot),
+  gitCommit: (projectRoot: string, message: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT, projectRoot, message),
+  gitDiff: (projectRoot: string, relativePath: string, staged: boolean) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GIT_DIFF, projectRoot, relativePath, staged),
+  gitInit: (projectRoot: string) => ipcRenderer.invoke(IPC_CHANNELS.GIT_INIT, projectRoot),
+
+  // Custom Tools Settings
+  updateCustomTools: (sessionId: string, config: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CUSTOM_TOOLS, sessionId, config),
+  getCustomTools: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_CUSTOM_TOOLS, sessionId),
+
   onTimelineUpdate: (callback: (item: TimelineItem) => void) => {
     const handler = (_event: any, item: TimelineItem) => callback(item)
     ipcRenderer.on(IPC_CHANNELS.EVENT_TIMELINE_UPDATE, handler)

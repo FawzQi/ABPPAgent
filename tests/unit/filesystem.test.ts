@@ -47,4 +47,38 @@ describe('FilesystemTools', () => {
     expect(res.isError).toBe(false)
     expect(fs.readFileSync(filePath, 'utf-8')).toBe('function run() {\n  return true;\n}')
   })
+
+  it('rejects catastrophic truncation writes to protect existing files', () => {
+    const filePath = path.join(tmpDir, 'Component.tsx')
+    // Create an existing file of ~1000 bytes
+    const largeOriginalCode = 'export function Component() {\n' + '  const x = 1;\n'.repeat(50) + '  return <div>OK</div>;\n}'
+    fs.writeFileSync(filePath, largeOriginalCode)
+    expect(fs.readFileSync(filePath, 'utf-8').length).toBeGreaterThan(500)
+
+    // Attempt to overwrite with 25-byte fragment (like the failure trace)
+    const res = FilesystemTools.writeFile('call_bad', filePath, 'import { useState } from ', true)
+    expect(res.isError).toBe(true)
+    expect(res.output).toContain('Safety Guardrail: Overwrite rejected!')
+
+    // Verify existing file is completely intact!
+    expect(fs.readFileSync(filePath, 'utf-8')).toBe(largeOriginalCode)
+  })
+
+  it('saves and restores shadow backups on valid overwrites', () => {
+    const filePath = path.join(tmpDir, 'BackedUp.tsx')
+    fs.writeFileSync(filePath, 'original version content that is important')
+
+    // Valid overwrite
+    FilesystemTools.writeFile('call_ok', filePath, 'new updated content that is also substantial', true)
+    expect(fs.readFileSync(filePath, 'utf-8')).toBe('new updated content that is also substantial')
+
+    // Shadow backup should hold the old version
+    const backup = FilesystemTools.getShadowBackup(filePath)
+    expect(backup).toBe('original version content that is important')
+
+    // Restore shadow backup
+    const restored = FilesystemTools.restoreShadowBackup(filePath)
+    expect(restored).toBe(true)
+    expect(fs.readFileSync(filePath, 'utf-8')).toBe('original version content that is important')
+  })
 })

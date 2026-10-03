@@ -8,11 +8,87 @@ import { buildSystemPrompt } from './prompt'
 import { ProcessRunner } from '../tools/runner'
 import { FilesystemTools } from '../tools/filesystem'
 import { DirectoryExplorer } from '../tools/explorer'
+import { CustomToolsService } from '../tools/custom-tools'
+import { generateCodebaseContext } from './codebase-context'
 
 export interface OrchestratorCallbacks {
   onTimelineUpdate: (item: TimelineItem) => void
   onSessionUpdate: (session: Session) => void
   onTerminalChunk: (data: { toolCallId: string; chunk: string }) => void
+}
+
+export class AgentDoubtDetector {
+  private static DOUBT_PATTERNS = [
+    /tools?\s+(?:are|is)\s+no\s+longer\s+available/i,
+    /only\s+have\s+(?:web|search)\s+tools/i,
+    /current\s+toolset\s+only\s+exposes/i,
+    /no\s+longer\s+available\s+to\s+me/i,
+    /cannot\s+read\s+(?:back\s+)?(?:the\s+)?file/i,
+    /cannot\s+verify\s+or\s+write/i,
+    /don't\s+have\s+file\s+tools/i,
+    /lacks?\s+file\s+tools/i,
+    /could\s+you\s+(?:run|paste|execute)\s*[:\s]+(?:wc|head|git|cat|bash|ls|npm)/i,
+    /please\s+(?:run|paste|execute)\s*[:\s]+(?:wc|head|git|cat|bash|ls|npm)/i,
+    /run\s+(?:wc\s+-|head\s+-|git\s+checkout|git\s+status|git\s+diff)/i,
+    /restore\s+the\s+affected\s+files\s+from\s+git/i,
+  ]
+
+  static hasDoubtOrHelplessness(text: string): boolean {
+    return this.DOUBT_PATTERNS.some((p) => p.test(text))
+  }
+}
+
+export class AgentIntentDetector {
+  private static COMPLETION_PATTERNS = [
+    /\b(task is completed|all changes have been made|successfully (?:updated|implemented|fixed|created|resolved)|i have finished|everything is set up|the task is done|here is the summary|summary of changes)\b/i,
+  ]
+
+  private static INTENT_PATTERNS = [
+    /\b(?:(?:now\s+)?let\s+me|i\s+will|i'll|i\s+need\s+to|let's|going\s+to|starting\s+to)\s+(?:read|explore|search|check|look|inspect|open|run|find|examine|update|modify|edit|write|implement|start)\b/i,
+    /\b(?:first|next|now),?\s+(?:i\s+will|let's|let\s+me)\b/i,
+    /\b(?:i\s+am|i'm|i\s+will)\s+(?:working|looking|checking|exploring|inspecting|preparing)\b/i,
+  ]
+
+  /**
+   * Detects whether an assistant message without tool calls is vague or an unfulfilled
+   * statement of intent to use tools or explore the codebase (rather than a finished result).
+   */
+  static isVagueOrUnfulfilled(text: string): boolean {
+    const trimmed = text.trim()
+    if (!trimmed) return true
+
+    // If it clearly announces completion, it is NOT an unfulfilled action
+    if (this.COMPLETION_PATTERNS.some((p) => p.test(trimmed))) {
+      return false
+    }
+
+    // 1. Ends with a colon (e.g. "Now let me read the PersonModal component to understand the card info layout:")
+    if (/:$/.test(trimmed)) {
+      return true
+    }
+
+    // 2. Action verbs indicating immediate exploration/tool invocation
+    if (this.INTENT_PATTERNS.some((p) => p.test(trimmed))) {
+      return true
+    }
+
+    // 3. Short conversational response without substance or tool invocation
+    if (
+      trimmed.length < 250 &&
+      /\b(?:okay|sure|understood|working on|on it|take a look|let me|i will|i'll|starting|explore|select the tools)\b/i.test(
+        trimmed,
+      )
+    ) {
+      return true
+    }
+
+    return false
+  }
+
+  // Alias for backward-compatibility
+  static isUnfulfilledAction(text: string): boolean {
+    return this.isVagueOrUnfulfilled(text)
+  }
 }
 
 export class AgentOrchestrator {
@@ -58,9 +134,15 @@ export class AgentOrchestrator {
     const isFirstTurn = existingTimeline.filter((t) => t.role === 'user').length <= 1
 
     let promptToSend = userText
+
+    // Generate codebase context (GitNexus + BM25 + recency) for basis context
+    const codebaseContext = await generateCodebaseContext(session.workspacePath, userText)
+
     if (isFirstTurn) {
-      const sysPrompt = buildSystemPrompt(session.workspacePath)
+      const sysPrompt = buildSystemPrompt(session.workspacePath, codebaseContext || undefined, session.customTools)
       promptToSend = `${sysPrompt}\n\nUSER GOAL:\n${userText}`
+    } else if (codebaseContext) {
+      promptToSend = `${codebaseContext}\n\nUSER GOAL:\n${userText}`
     }
 
     try {
@@ -93,9 +175,10 @@ export class AgentOrchestrator {
   private static async runLoop(session: Session, prompt: string, signal: AbortSignal): Promise<void> {
     let currentPrompt: string | null = prompt
     let recoveryAttempts = 0
+    const recentCalls: { name: string; argsHash: string; output: string; isError?: boolean }[] = []
 
     while (currentPrompt && !signal.aborted) {
-      // Pacing: 1 second delay for each interaction to let event loops settle
+      // Pacing: 1 second cooldown for sending prompt to web chat llm
       await new Promise((resolve) => setTimeout(resolve, 1000))
       if (signal.aborted) break
 
@@ -122,8 +205,26 @@ export class AgentOrchestrator {
       SessionRepository.saveTimelineItem(assistantItem)
       this.callbacks?.onTimelineUpdate(assistantItem)
 
-      // 3. Format error recovery check
+      // 3. Autonomous recovery checks (Agent Doubt / Helplessness or Tool Format Errors)
       if (parsed.toolCalls.length === 0) {
+        // A. Agent Doubt / Helplessness Check: Detect when agent falsely believes tools were removed
+        if (AgentDoubtDetector.hasDoubtOrHelplessness(sendResult.text) && recoveryAttempts < 3) {
+          recoveryAttempts++
+          const alertItem: TimelineItem = {
+            id: `msg_${Date.now()}_doubt_reanchor`,
+            sessionId: session.id,
+            role: 'assistant',
+            content: `⚠️ Agent expressed doubt about tool availability. Automatically injecting environment re-anchor (attempt ${recoveryAttempts}/3)...`,
+            timestamp: Date.now(),
+          }
+          SessionRepository.saveTimelineItem(alertItem)
+          this.callbacks?.onTimelineUpdate(alertItem)
+
+          currentPrompt = `<system_alert>\nCRITICAL ENVIRONMENT RE-ANCHOR:\nAll local workspace tools (read_file, read_file_full, write_file, replace_file_content, run_command, list_directory, git_*) are 100% ACTIVE and READY in your current session.\nYou have full autonomous access to the workspace shell and filesystem. Do NOT ask the user to run terminal commands (such as wc, head, or git) for you.\nIf a previous file write was rejected or had an issue, you can inspect it with read_file_full or rewrite/restore it directly right now using your tools.\nPlease resume your autonomous task immediately using the appropriate tool call.\n</system_alert>`
+          continue
+        }
+
+        // B. Tool Call Formatting Error Check
         if (ToolCallParser.hasToolCallAttempt(sendResult.text) && recoveryAttempts < 3) {
           recoveryAttempts++
           const nudgeItem: TimelineItem = {
@@ -136,11 +237,45 @@ export class AgentOrchestrator {
           SessionRepository.saveTimelineItem(nudgeItem)
           this.callbacks?.onTimelineUpdate(nudgeItem)
 
-          currentPrompt = `<format_error>\nYour previous message attempted to invoke a tool but the tool format was invalid, unclosed, or had malformed arguments.\nPlease re-issue your tool call strictly using the valid format with JSON arguments:\n<tool_call name="tool_name">\n{\n  "parameter_name": "parameter_value"\n}\n</tool_call>\n</format_error>`
+          currentPrompt = `<format_error>\nYour previous message attempted to invoke a tool but used an invalid or unsupported format (such as DSML).\nYou MUST format all tool calls strictly using standard XML with a valid JSON argument object:\n<tool_call name="tool_name">\n{\n  "parameter_name": "parameter_value"\n}\n</tool_call>\nDo NOT output DSML tokens or parameters.\n</format_error>`
           continue
         }
 
-        // If no tool calls and no attempt, task is complete
+        // C. Vague Response / Unfulfilled Action Check
+        if (AgentIntentDetector.isVagueOrUnfulfilled(sendResult.text) && recoveryAttempts < 3) {
+          recoveryAttempts++
+          const intentItem: TimelineItem = {
+            id: `msg_${Date.now()}_intent_nudge`,
+            sessionId: session.id,
+            role: 'assistant',
+            content: `⚠️ Vague response without tool call detected. Prompting for strict tool execution (attempt ${recoveryAttempts}/3)...`,
+            timestamp: Date.now(),
+          }
+          SessionRepository.saveTimelineItem(intentItem)
+          this.callbacks?.onTimelineUpdate(intentItem)
+
+          currentPrompt = `<system_alert>\nYour response was vague and did not invoke any tools or provide a finished result.\nYou MUST follow the strict output format:\n1. Enclose your plan/reasoning in <thought>...</thought>.\n2. Immediately emit your tool call in standard XML:\n<tool_call name="tool_name">\n{\n  "parameter_name": "parameter_value"\n}\n</tool_call>\nDo NOT output conversational commentary without a tool call. Please emit your tool call now.\n</system_alert>`
+          continue
+        }
+
+        if (recoveryAttempts >= 3) {
+          session.status = 'paused'
+          session.updatedAt = Date.now()
+          const stalledItem: TimelineItem = {
+            id: `msg_${Date.now()}_stalled`,
+            sessionId: session.id,
+            role: 'assistant',
+            content: `⚠️ Agent paused: Maximum recovery attempts (3) exceeded without tool execution.`,
+            timestamp: Date.now(),
+          }
+          SessionRepository.saveTimelineItem(stalledItem)
+          this.callbacks?.onTimelineUpdate(stalledItem)
+          SessionRepository.saveSession(session)
+          this.callbacks?.onSessionUpdate(session)
+          break
+        }
+
+        // If no tool calls and no doubt or attempt or pending intent, task is complete
         session.status = 'idle'
         session.updatedAt = Date.now()
         SessionRepository.saveSession(session)
@@ -151,15 +286,75 @@ export class AgentOrchestrator {
       // Reset recovery attempts on successful tool parse
       recoveryAttempts = 0
 
-      // 4. Execute each tool call sequentially
-      const toolResults: ToolResult[] = []
+      // 4. Pacing: Wait 1 second after scraping before running tools
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      if (signal.aborted) break
 
-      for (const call of parsed.toolCalls) {
+      // Execute each tool call sequentially with 500ms delay between calls
+      const toolResults: ToolResult[] = []
+      let fullFileReadCount = 0
+
+      for (let i = 0; i < parsed.toolCalls.length; i++) {
         if (signal.aborted) break
+        if (i > 0) {
+          // Pacing: Wait 500ms between sequential tool executions
+          await new Promise((resolve) => setTimeout(resolve, 500))
+          if (signal.aborted) break
+        }
+        const call = parsed.toolCalls[i]
+        const argsHash = JSON.stringify(call.arguments)
+
+        // Repetition Guard: Detect identical calls that failed or yielded no matches in previous turns
+        const previousDuplicate = recentCalls.find(
+          (c) => c.name === call.name && c.argsHash === argsHash
+        )
+
+        if (
+          previousDuplicate &&
+          (previousDuplicate.isError ||
+            previousDuplicate.output.includes('(No matches found)') ||
+            previousDuplicate.output.includes('0 results') ||
+            previousDuplicate.output.includes('not found') ||
+            previousDuplicate.output.includes('does not exist'))
+        ) {
+          toolResults.push({
+            toolCallId: call.id,
+            name: call.name,
+            output: `Error: Repetition detected! You executed this exact same tool call '${call.name}' with identical parameters in a previous turn, which returned: "${previousDuplicate.output.slice(0, 120)}...". Do NOT repeat identical commands or searches. Change your search query, check a different directory, or read the target file directly.`,
+            isError: true,
+          })
+          continue
+        }
+
+        // Context protection: Do not stack multiple heavy full-file reads in one turn
+        if (call.name === 'read_file_full' || call.name === 'copy_file_to_chat') {
+          fullFileReadCount++
+          if (fullFileReadCount > 1) {
+            toolResults.push({
+              toolCallId: call.id,
+              name: call.name,
+              output: `Notice: To protect the web chat context window, full file reads cannot be stacked in a single turn. Please inspect this file in your next turn.`,
+              isError: false,
+            })
+            continue
+          }
+        }
+
         const result = await this.processToolCall(session, call, signal)
         toolResults.push(result)
+        recentCalls.push({
+          name: call.name,
+          argsHash,
+          output: result.output,
+          isError: result.isError,
+        })
+        if (recentCalls.length > 20) recentCalls.shift()
       }
 
+      if (signal.aborted) break
+
+      // Pacing: 1 second cooldown after tools finish execution before sending the next turn to web chat
+      await new Promise((resolve) => setTimeout(resolve, 1000))
       if (signal.aborted) break
 
       // 5. Format tool results into XML for subsequent turn
@@ -172,7 +367,16 @@ export class AgentOrchestrator {
    * Process a single tool call: permission evaluation, approval wait, execution, diff calculation.
    */
   private static async processToolCall(session: Session, call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
-    const perm = PermissionGateway.evaluate(call, session.autoApprove)
+    const perm = PermissionGateway.evaluate(call, session.autoApprove, session.customTools)
+
+    if (perm.isDisabled) {
+      return {
+        toolCallId: call.id,
+        name: call.name,
+        output: `Error: ${perm.reason || `Tool '${call.name}' is disabled in Custom Tools settings.`}`,
+        isError: true,
+      }
+    }
 
     // Compute diff preview if file tool
     let diffPreview: any = undefined
@@ -314,6 +518,22 @@ export class AgentOrchestrator {
           : path.join(session.workspacePath, call.arguments.DirectoryPath)
         : session.workspacePath
       result = DirectoryExplorer.listDirectory(call.id, targetDir, call.arguments.Recursive, call.arguments.Depth)
+    } else if (call.name === 'read_file_full') {
+      const targetFile = path.isAbsolute(call.arguments.AbsolutePath)
+        ? call.arguments.AbsolutePath
+        : path.join(session.workspacePath, call.arguments.AbsolutePath)
+      result = CustomToolsService.readFileFull(call.id, targetFile)
+    } else if (call.name === 'copy_file_to_chat') {
+      const targetFile = path.isAbsolute(call.arguments.AbsolutePath)
+        ? call.arguments.AbsolutePath
+        : path.join(session.workspacePath, call.arguments.AbsolutePath)
+      result = CustomToolsService.copyFileToChat(call.id, targetFile)
+    } else if (call.name === 'gitnexus_query') {
+      result = await CustomToolsService.gitnexusQuery(call.id, session.workspacePath, call.arguments.Query || '')
+    } else if (call.name === 'gitnexus_context') {
+      result = await CustomToolsService.gitnexusContext(call.id, session.workspacePath, call.arguments.Target || '')
+    } else if (call.name === 'grep_search') {
+      result = await CustomToolsService.grepSearch(call.id, session.workspacePath, call.arguments.Query || '', call.arguments.Path)
     } else if (call.name === 'ask_user') {
       const answer = await new Promise<string>((resolve) => {
         this.pendingUserInputs.set(call.id, { resolve })

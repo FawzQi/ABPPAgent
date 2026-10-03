@@ -1,17 +1,12 @@
 import React from 'react'
 import ReactDiffViewer from 'react-diff-viewer-continued'
+import { X, RefreshCw } from 'lucide-react'
+import { useGitStore } from '../../stores/git-store'
 import { useDiffStore } from '../../stores/diff-store'
 
 export const DiffViewer: React.FC = () => {
-  const { selectedFile } = useDiffStore()
-
-  if (!selectedFile) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-xs text-slate-500 p-4 text-center">
-        Select a modified file above to inspect before/after diff
-      </div>
-    )
-  }
+  const { selectedDiff, setSelectedDiff } = useGitStore()
+  const { selectedFile, setSelectedFile } = useDiffStore()
 
   const customStyles = {
     variables: {
@@ -38,20 +33,93 @@ export const DiffViewer: React.FC = () => {
     },
   }
 
+  // Case 1: Git Diff is selected
+  if (selectedDiff) {
+    if (selectedDiff.loading) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-4 text-xs text-slate-500">
+          <RefreshCw size={13} className="animate-spin mr-1.5" /> Loading diff for {selectedDiff.path}...
+        </div>
+      )
+    }
+
+    if (selectedDiff.error) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center p-4 text-xs text-rose-400 text-center">
+          <span>Failed to load diff: {selectedDiff.error}</span>
+          <button
+            onClick={() => setSelectedDiff(null)}
+            className="mt-2 text-slate-400 hover:text-white underline cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      )
+    }
+
+    const original = selectedDiff.content?.original || ''
+    const modified = selectedDiff.content?.modified || ''
+
+    return (
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-slate-950">
+        <div className="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs font-mono text-slate-300">
+          <div className="flex items-center gap-2 truncate">
+            <span className="font-semibold truncate">{selectedDiff.path}</span>
+            <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
+              {selectedDiff.staged ? 'Staged (HEAD ↔ Index)' : 'Unstaged (Index ↔ Working Tree)'}
+            </span>
+          </div>
+          <button
+            onClick={() => setSelectedDiff(null)}
+            className="p-0.5 text-slate-400 hover:text-white rounded cursor-pointer"
+            title="Close diff"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto font-mono text-[11px]">
+          <ReactDiffViewer
+            oldValue={original}
+            newValue={modified}
+            splitView={false}
+            useDarkTheme={true}
+            styles={customStyles}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // Case 2: Session Modified File is selected
+  if (selectedFile) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-slate-950">
+        <div className="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs font-mono text-slate-300">
+          <span className="truncate">{selectedFile.path}</span>
+          <button
+            onClick={() => setSelectedFile(null)}
+            className="p-0.5 text-slate-400 hover:text-white rounded cursor-pointer"
+            title="Close diff"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto font-mono text-[11px]">
+          <ReactDiffViewer
+            oldValue={selectedFile.oldContent || ''}
+            newValue={selectedFile.newContent || ''}
+            splitView={false}
+            useDarkTheme={true}
+            styles={customStyles}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <div className="px-3 py-1.5 bg-slate-950 border-b border-slate-800 text-xs font-mono text-slate-300 truncate">
-        {selectedFile.path}
-      </div>
-      <div className="flex-1 overflow-auto bg-slate-950 font-mono text-[11px]">
-        <ReactDiffViewer
-          oldValue={selectedFile.oldContent || ''}
-          newValue={selectedFile.newContent || ''}
-          splitView={false}
-          useDarkTheme={true}
-          styles={customStyles}
-        />
-      </div>
+    <div className="flex-1 flex items-center justify-center text-xs text-slate-500 p-4 text-center">
+      Select a file in Source Control to inspect before/after diff
     </div>
   )
 }

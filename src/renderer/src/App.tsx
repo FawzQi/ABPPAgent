@@ -9,20 +9,24 @@ import {
   PanelRightOpen,
   Square,
   Sparkles,
+  Wrench,
 } from 'lucide-react'
 import { useSessionStore } from './stores/session-store'
 import { useTargetStore } from './stores/target-store'
+import { useToolsStore } from './stores/tools-store'
 import { SessionList } from './components/Sidebar/SessionList'
 import { TargetSelector } from './components/Sidebar/TargetSelector'
 import { WorkspaceTree } from './components/Sidebar/WorkspaceTree'
 import { Timeline } from './components/Cockpit/Timeline'
 import { Composer } from './components/Cockpit/Composer'
-import { FileChangesList } from './components/Inspector/FileChangesList'
+import { SourceControlPanel } from './components/SourceControl/SourceControlPanel'
 import { DiffViewer } from './components/Inspector/DiffViewer'
+import { CustomToolsModal } from './components/Tools/CustomToolsModal'
 
 export const App: React.FC = () => {
   const { init, activeSession, workspacePath, setWorkspacePath, toggleAutoApprove, abortAgent } = useSessionStore()
   const { targets } = useTargetStore()
+  const { openModal: openToolsModal } = useToolsStore()
 
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
@@ -52,7 +56,7 @@ export const App: React.FC = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setLeftOpen(!leftOpen)}
-            className="text-slate-400 hover:text-slate-200 p-1 rounded transition"
+            className="text-slate-400 hover:text-slate-200 p-1 rounded transition cursor-pointer"
             title="Toggle Sidebar"
           >
             {leftOpen ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
@@ -93,6 +97,16 @@ export const App: React.FC = () => {
             </div>
           )}
 
+          {/* Custom Tools Menu Button */}
+          <button
+            onClick={openToolsModal}
+            className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-slate-100 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 px-2.5 py-1 rounded transition cursor-pointer"
+            title="Configure Custom Tools (GitNexus, Grep, Whole-file, CLI commands)"
+          >
+            <Wrench size={13} className="text-indigo-400" />
+            <span>Tools</span>
+          </button>
+
           {/* YOLO / Safety Mode Toggle */}
           <button
             onClick={toggleAutoApprove}
@@ -125,8 +139,8 @@ export const App: React.FC = () => {
 
           <button
             onClick={() => setRightOpen(!rightOpen)}
-            className="text-slate-400 hover:text-slate-200 p-1 rounded transition"
-            title="Toggle Diffs Drawer"
+            className="text-slate-400 hover:text-slate-200 p-1 rounded transition cursor-pointer"
+            title="Toggle Source Control & Diffs Drawer"
           >
             {rightOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
           </button>
@@ -150,14 +164,21 @@ export const App: React.FC = () => {
           <Composer />
         </main>
 
-        {/* Right Column: Inspector & Diffs */}
+        {/* Right Column: Source Control & Diffs */}
         {rightOpen && (
-          <aside className="w-80 border-l border-slate-800 bg-slate-950 flex flex-col shrink-0 select-none">
-            <FileChangesList />
-            <DiffViewer />
+          <aside className="w-84 border-l border-slate-800 bg-slate-950 flex flex-col shrink-0 select-none min-h-0">
+            <div className="h-[48%] min-h-48 flex flex-col min-h-0 overflow-hidden">
+              <SourceControlPanel />
+            </div>
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <DiffViewer />
+            </div>
           </aside>
         )}
       </div>
+
+      {/* Custom Tools Modal */}
+      <CustomToolsModal />
     </div>
   )
 }
