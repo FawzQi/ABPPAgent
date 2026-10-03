@@ -1,0 +1,13 @@
+appId: dev.ABPPAgent.app
+productName: ABPPAgent
+directories:
+  output: release
+files:
+  - out/**/*
+  - package.json
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+  maintainer: ABPPAgent <maintainer@example.com>
