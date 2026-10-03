@@ -18,6 +18,16 @@ export class ProcessRunner {
     commandLine: string,
     options: ProcessRunnerOptions,
   ): Promise<ToolResult> {
+    if (!commandLine || typeof commandLine !== 'string' || !commandLine.trim()) {
+      return {
+        toolCallId,
+        name: 'run_command',
+        output: 'Error: No valid CommandLine specified.',
+        exitCode: 1,
+        isError: true,
+      }
+    }
+
     return new Promise((resolve) => {
       let outputBuffer = ''
       const timeout = options.timeoutMs || 120_000

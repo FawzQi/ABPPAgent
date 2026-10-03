@@ -1083,10 +1083,10 @@ function buildScript(target: WebChatTarget, prompt: string): string {
     const btns = document.querySelectorAll('button, [role="button"]');
     for (const b of btns) {
       if (b.offsetParent === null) continue;
-      const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')).trim().toLowerCase();
-      if (/^(continue|resume|continue generating|keep going)$/.test(label)) return true;
+      const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '') + ' ' + (b.textContent || '')).trim().toLowerCase();
+      if (/^(continue|resume|continue generating|keep going|继续|继续生成|继续思考)$/i.test(label) || /^(continue|resume|继续)$/i.test((b.textContent || '').trim())) return b;
     }
-    return false;
+    return null;
   };
 
   // A visible element whose class or aria names a common "model is busy"
@@ -1155,7 +1155,16 @@ function buildScript(target: WebChatTarget, prompt: string): string {
     }
     sawAny = true;
 
-    const paused = isPaused();
+    const pauseBtn = isPaused();
+    if (pauseBtn) {
+      try {
+        pauseBtn.click();
+        window.__AnythingButProPlanWebChatStatus = 'working';
+        await sleep(1000);
+        continue;
+      } catch (e) {}
+    }
+    const paused = !!pauseBtn;
     // Some sites render a placeholder ("Thinking…", a spinner) in the
     // reply element while the model reasons. That text does not change,
     // so the stability counter would fire on it and return the
@@ -1468,13 +1477,9 @@ async function readReplyViaCopy(
     }
   }
 
-  // If no copy attempt succeeded at all and window is unfocused, try one attempt with focus
-  if (!sawAnyCopy && typeof win.isFocused === "function" && !win.isFocused() && !win.isDestroyed()) {
+  // If no copy attempt succeeded at all, try candidate clicks without stealing OS focus
+  if (!sawAnyCopy && !win.isDestroyed()) {
     try {
-      win.focus();
-      win.webContents.focus();
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
       for (let i = count - 1; i >= count - Math.min(count, 3); i--) {
         await clipboard.writeText(sentinel);
         const { clicked, capturedText } = await clickCopyCandidate(win, i);
@@ -1734,24 +1739,7 @@ async function deliverPrompt(
     const scraped = typeof raw.text === "string" ? raw.text : "";
 
     if (raw.stable === true) {
-      const wasFocused = win.isFocused();
       try {
-        if (!wasFocused) {
-          win.show();
-          win.focus();
-          // Poll until the OS actually hands the window focus, then give the
-          // renderer a beat to observe the focus event. Chromium refuses
-          // `navigator.clipboard.writeText` while the document is unfocused
-          // and a synthetic click does not count as user activation, so a
-          // copy issued into a document the OS has not yet focused is a
-          // silent no-op — the sentinel stays on the clipboard and we fall
-          // through to the scraped text.
-          const focusDeadline = Date.now() + 2000;
-          while (!win.isFocused() && Date.now() < focusDeadline) {
-            await new Promise((resolve) => setTimeout(resolve, 50));
-          }
-          await new Promise((resolve) => setTimeout(resolve, FOCUS_SETTLE_MS));
-        }
         const fromClipboard = await readReplyViaCopy(win, target, scraped);
         if (fromClipboard) {
           lastCopiedResponses.set(target.id, fromClipboard);
@@ -1905,24 +1893,37 @@ export async function sendToWebChat(
     };
   }
 
-  if (win.isMinimized()) win.restore();
-  win.showInactive();
+  const maxRetries = 2;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const result = await deliverPrompt(win, target, prompt);
 
-  const result = await deliverPrompt(win, target, prompt);
+    const isTransientError =
+      !result.ok &&
+      typeof result.error === "string" &&
+      /server is temporarily unavailable|network error|failed to fetch|rate limit|please try again/i.test(
+        result.error,
+      );
 
-  // A failed send almost always means the user needs to sign in or solve a
-  // challenge, so bring the window forward. A successful send hides it again
-  // unless the user has already taken focus.
-  if (!win.isDestroyed()) {
-    if (!result.ok) {
-      win.show();
-      win.focus();
-    } else if (!win.isFocused()) {
-      win.hide();
+    const isTransientText =
+      result.ok &&
+      typeof result.text === "string" &&
+      result.text.length < 200 &&
+      /server is temporarily unavailable|服务器繁忙|network error|please try again/i.test(
+        result.text,
+      );
+
+    if ((isTransientError || isTransientText) && attempt < maxRetries) {
+      console.warn(
+        `[web-chat] Transient error on ${target.label} (attempt ${attempt + 1}/${maxRetries + 1}). Retrying in 3s...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      continue;
     }
+
+    return result;
   }
 
-  return result;
+  return { ok: false, error: `${target.label}: Exceeded maximum retry attempts.` };
 }
 
 export interface WebChatDocumentResult extends WebChatSendResult {

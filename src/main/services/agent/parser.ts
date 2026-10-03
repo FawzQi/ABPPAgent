@@ -7,7 +7,7 @@ export interface ParsedAssistantResponse {
 }
 
 /**
- * Robust XML parser for extracting <thought> and <tool_call> tags from assistant responses.
+ * Robust XML and DSML parser for extracting <thought>, <tool_call>, and DeepSeek DSML tool calls.
  */
 export class ToolCallParser {
   /**
@@ -28,11 +28,11 @@ export class ToolCallParser {
       cleanText = cleanText.replace(thoughtRegex, '').trim()
     }
 
-    // 2. Extract tool calls: <tool_call name="...">...</tool_call>
-    const toolCallRegex = /<tool_call\s+name=["']([^"']+)["']>([\s\S]*?)<\/tool_call>/gi
+    // 2. Extract standard XML tool calls: <tool_call name="...">...</tool_call>
+    const standardToolRegex = /<tool_call\s+name=["']([^"']+)["']>([\s\S]*?)<\/tool_call>/gi
     let match: RegExpExecArray | null
 
-    while ((match = toolCallRegex.exec(cleanText)) !== null) {
+    while ((match = standardToolRegex.exec(cleanText)) !== null) {
       const rawXml = match[0]
       const name = match[1].trim()
       const rawArgs = match[2].trim()
@@ -64,8 +64,57 @@ export class ToolCallParser {
       })
     }
 
-    // Remove tool call XML blocks from the user-facing text
-    cleanText = cleanText.replace(/<tool_call\s+name=["'][^"']+["']>[\s\S]*?<\/tool_call>/gi, '').trim()
+    // 3. Extract DeepSeek native DSML tool calls:
+    // <｜｜DSML｜｜ invoke name="...">...<｜｜DSML｜｜ parameter name="...">value</｜｜DSML｜｜ parameter>...</｜｜DSML｜｜ invoke>
+    // Handles both standard ASCII pipe '|' and Unicode fullwidth vertical bar '｜' (U+FF5C)
+    const dsmlInvokeRegex = /<[|｜]{2}DSML[|｜]{2}\s+invoke\s+name=["']([^"']+)["']>([\s\S]*?)<\/[|｜]{2}DSML[|｜]{2}\s+invoke>/gi
+    let dsmlMatch: RegExpExecArray | null
+
+    while ((dsmlMatch = dsmlInvokeRegex.exec(cleanText)) !== null) {
+      const rawXml = dsmlMatch[0]
+      const name = dsmlMatch[1].trim()
+      const body = dsmlMatch[2]
+
+      const parsedArgs: Record<string, any> = {}
+      const paramRegex = /<[|｜]{2}DSML[|｜]{2}\s+parameter\s+name=["']([^"']+)["'](?:\s+[^>]*)?>([\s\S]*?)<\/[|｜]{2}DSML[|｜]{2}\s+parameter>/gi
+      let paramMatch: RegExpExecArray | null
+
+      while ((paramMatch = paramRegex.exec(body)) !== null) {
+        const paramName = paramMatch[1].trim()
+        const rawVal = paramMatch[2].trim()
+
+        if (rawVal === 'true') {
+          parsedArgs[paramName] = true
+        } else if (rawVal === 'false') {
+          parsedArgs[paramName] = false
+        } else if (/^-?\d+$/.test(rawVal)) {
+          parsedArgs[paramName] = parseInt(rawVal, 10)
+        } else if (/^-?\d+\.\d+$/.test(rawVal)) {
+          parsedArgs[paramName] = parseFloat(rawVal)
+        } else {
+          try {
+            parsedArgs[paramName] = JSON.parse(rawVal)
+          } catch {
+            parsedArgs[paramName] = rawVal
+          }
+        }
+      }
+
+      toolCalls.push({
+        id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name,
+        arguments: parsedArgs,
+        rawXml,
+      })
+    }
+
+    // 4. Clean user-facing text: strip XML tool calls and DSML tokens
+    cleanText = cleanText
+      .replace(/<tool_call\s+name=["'][^"']+["']>[\s\S]*?<\/tool_call>/gi, '')
+      .replace(/<[|｜]{2}DSML[|｜]{2}\s+invoke[\s\S]*?<\/[|｜]{2}DSML[|｜]{2}\s+invoke>/gi, '')
+      .replace(/<[|｜]{2}DSML[|｜]{2}[^>]*>/gi, '')
+      .replace(/<\/[|｜]{2}DSML[|｜]{2}[^>]*>/gi, '')
+      .trim()
 
     return {
       cleanContent: cleanText,

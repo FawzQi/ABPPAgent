@@ -70,6 +70,7 @@ INTERACTION PROTOCOL:
   "arg_name": "arg_value"
 }
 </tool_call>
+- Always emit tool calls using the standard <tool_call name="..."> format with valid JSON arguments. Do not output raw DSML tokens.
 - You may call one or more tools per turn.
 - Tool outputs will be provided in subsequent turns inside <tool_result name="tool_name">...</tool_result>.
 - When your task is completed and verified, respond directly to the user with a concise summary WITHOUT any <tool_call> tags.

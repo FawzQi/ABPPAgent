@@ -34,6 +34,41 @@ I will now read the file to check dependencies.`
     })
   })
 
+  it('extracts DeepSeek native DSML tool calls correctly', () => {
+    const raw = `<thought>
+Examining the main game file.
+</thought>
+Let me examine mainGame.cpp structure.
+
+<｜｜DSML｜｜ calls>
+<｜｜DSML｜｜ invoke name="run_command">
+<｜｜DSML｜｜ parameter name="CommandLine" string="true">grep -n 'InitWindow|BeginDrawing' mainGame.cpp</｜｜DSML｜｜ parameter>
+</｜｜DSML｜｜ invoke>
+<｜｜DSML｜｜ invoke name="list_directory">
+<｜｜DSML｜｜ parameter name="DirectoryPath" string="true">/home/faiq/data/arts/gaming2</｜｜DSML｜｜ parameter>
+<｜｜DSML｜｜ parameter name="Recursive" boolean="true">true</｜｜DSML｜｜ parameter>
+<｜｜DSML｜｜ parameter name="Depth" number="true">2</｜｜DSML｜｜ parameter>
+</｜｜DSML｜｜ invoke>
+</｜｜DSML｜｜ calls>`
+
+    const parsed = ToolCallParser.parse(raw)
+    expect(parsed.thinking?.content).toBe('Examining the main game file.')
+    expect(parsed.cleanContent).toBe('Let me examine mainGame.cpp structure.')
+    expect(parsed.toolCalls.length).toBe(2)
+
+    expect(parsed.toolCalls[0].name).toBe('run_command')
+    expect(parsed.toolCalls[0].arguments).toEqual({
+      CommandLine: "grep -n 'InitWindow|BeginDrawing' mainGame.cpp",
+    })
+
+    expect(parsed.toolCalls[1].name).toBe('list_directory')
+    expect(parsed.toolCalls[1].arguments).toEqual({
+      DirectoryPath: '/home/faiq/data/arts/gaming2',
+      Recursive: true,
+      Depth: 2,
+    })
+  })
+
   it('formats tool results into XML tags for next turn', () => {
     const result = {
       toolCallId: 'call_123',
