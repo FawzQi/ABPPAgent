@@ -1,4 +1,4 @@
-export type WebChatTargetId = 'deepseek' | 'chatgpt' | 'claude' | 'gemini'
+export type WebChatTargetId = 'deepseek' | 'chatgpt' | 'claude' | 'gemini' | 'kimi' | 'qwen'
 
 export type WebChatStatus = 'idle' | 'working' | 'paused' | 'error' | 'disconnected'
 
@@ -6,10 +6,22 @@ export interface WebChatTargetInfo {
   id: WebChatTargetId
   label: string
   url: string
-  status: WebChatStatus
+  status?: WebChatStatus
   statusDetails?: string
   lastActive?: number
-  isReady: boolean
+  isReady?: boolean
+}
+
+export interface WebChatSendResult {
+  ok: boolean
+  text?: string
+  error?: string
+}
+
+export interface WebChatResponsePushedPayload {
+  target: WebChatTargetId
+  text: string
+  isDirectPush?: boolean
 }
 
 export type ToolApprovalStatus = 'auto_approved' | 'pending' | 'approved' | 'rejected'

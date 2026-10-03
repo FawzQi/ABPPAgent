@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell } from 'electron'
 import path from 'node:path'
 import { registerIpcHandlers } from './ipc'
-import { WindowPool } from './services/web-chat/window-pool'
+import { closeAllWebChatWindows } from './services/web-chat/web-chat-service'
 
 // Strip automation flags so web LLM sites don't flag navigator.webdriver
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')
@@ -57,7 +57,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  WindowPool.closeAll()
+  closeAllWebChatWindows()
   if (process.platform !== 'darwin') {
     app.quit()
   }

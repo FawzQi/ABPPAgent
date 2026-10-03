@@ -3,9 +3,12 @@ import { dialog, ipcMain, BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
 import type { Session, WebChatTargetId, WebChatTargetInfo } from '@shared/types'
 import { SessionRepository } from './services/db/repository'
-import { WEB_CHAT_TARGETS } from './services/web-chat/targets'
-import { WindowPool } from './services/web-chat/window-pool'
-import { StatusPoller } from './services/web-chat/poller'
+import {
+  listWebChatTargets,
+  getWebChatStatuses,
+  setWebChatStatusListener,
+  openWebChat,
+} from './services/web-chat/web-chat-service'
 import { AgentOrchestrator } from './services/agent/orchestrator'
 import { DirectoryExplorer } from './services/tools/explorer'
 
@@ -26,14 +29,13 @@ export function registerIpcHandlers(): void {
     onTerminalChunk: (data) => broadcast(IPC_CHANNELS.EVENT_TERMINAL_CHUNK, data),
   })
 
-  // Setup status poller listener
-  StatusPoller.subscribe((targetId, status) => {
-    const target = WEB_CHAT_TARGETS.find((t) => t.id === targetId)
-    if (target) {
+  // Setup status poller listener from web-chat-service
+  setWebChatStatusListener((statuses) => {
+    const targets = listWebChatTargets()
+    for (const target of targets) {
+      const status = statuses[target.id] ?? 'idle'
       broadcast(IPC_CHANNELS.EVENT_TARGET_STATUS_UPDATE, {
-        id: target.id,
-        label: target.label,
-        url: target.url,
+        ...target,
         status,
         isReady: true,
       })
@@ -81,17 +83,16 @@ export function registerIpcHandlers(): void {
 
   // 2. Targets
   ipcMain.handle(IPC_CHANNELS.GET_TARGETS, (): WebChatTargetInfo[] => {
-    return WEB_CHAT_TARGETS.map((t) => ({
-      id: t.id,
-      label: t.label,
-      url: t.url,
-      status: StatusPoller.getStatus(t.id),
-      isReady: Boolean(WindowPool.getWindow(t.id)),
+    const statuses = getWebChatStatuses()
+    return listWebChatTargets().map((t) => ({
+      ...t,
+      status: statuses[t.id] ?? 'idle',
+      isReady: true,
     }))
   })
 
   ipcMain.handle(IPC_CHANNELS.OPEN_TARGET_WINDOW, async (_e, targetId: WebChatTargetId) => {
-    await WindowPool.ensureWindow(targetId, true)
+    await openWebChat(targetId)
     return true
   })
 
@@ -111,7 +112,6 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.RESPOND_TO_USER_INPUT, (_e, _sessionId: string, answer: string) => {
-    // If pending input exists, pass response
     const parts = answer.split(':::')
     if (parts.length === 2) {
       AgentOrchestrator.respondToUserInput(parts[0], parts[1])

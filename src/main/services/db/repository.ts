@@ -1,134 +1,87 @@
+import path from 'node:path'
+import fs from 'node:fs'
 import type { Session, TimelineItem, WorkspaceFileChange } from '@shared/types'
-import { getDatabase } from './database'
+import { getStorageDir, readJsonSafe, writeJsonAtomic } from './database'
 
 export class SessionRepository {
+  private static getSessionsFilePath(): string {
+    return path.join(getStorageDir(), 'sessions.json')
+  }
+
+  private static getTimelineFilePath(sessionId: string): string {
+    return path.join(getStorageDir(), `timeline_${sessionId}.json`)
+  }
+
+  private static getModifiedFilesPath(sessionId: string): string {
+    return path.join(getStorageDir(), `modified_${sessionId}.json`)
+  }
+
   static getSessions(): Session[] {
-    const db = getDatabase()
-    const rows = db.prepare('SELECT * FROM sessions ORDER BY updated_at DESC').all() as any[]
-    return rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-      targetId: r.target_id,
-      workspacePath: r.workspace_path,
-      autoApprove: Boolean(r.auto_approve),
-      status: r.status,
-    }))
+    const list = readJsonSafe<Session[]>(this.getSessionsFilePath(), [])
+    return list.sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   static getSessionById(id: string): Session | null {
-    const db = getDatabase()
-    const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as any
-    if (!row) return null
-    return {
-      id: row.id,
-      title: row.title,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      targetId: row.target_id,
-      workspacePath: row.workspace_path,
-      autoApprove: Boolean(row.auto_approve),
-      status: row.status,
-    }
+    const list = this.getSessions()
+    return list.find((s) => s.id === id) ?? null
   }
 
   static saveSession(session: Session): void {
-    const db = getDatabase()
-    db.prepare(`
-      INSERT INTO sessions (id, title, created_at, updated_at, target_id, workspace_path, auto_approve, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        title = excluded.title,
-        updated_at = excluded.updated_at,
-        target_id = excluded.target_id,
-        workspace_path = excluded.workspace_path,
-        auto_approve = excluded.auto_approve,
-        status = excluded.status
-    `).run(
-      session.id,
-      session.title,
-      session.createdAt,
-      session.updatedAt,
-      session.targetId,
-      session.workspacePath,
-      session.autoApprove ? 1 : 0,
-      session.status,
-    )
+    const list = this.getSessions()
+    const index = list.findIndex((s) => s.id === session.id)
+    if (index >= 0) {
+      list[index] = session
+    } else {
+      list.unshift(session)
+    }
+    writeJsonAtomic(this.getSessionsFilePath(), list)
   }
 
   static deleteSession(id: string): boolean {
-    const db = getDatabase()
-    const res = db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
-    return res.changes > 0
+    const list = this.getSessions()
+    const filtered = list.filter((s) => s.id !== id)
+    writeJsonAtomic(this.getSessionsFilePath(), filtered)
+
+    try {
+      const tl = this.getTimelineFilePath(id)
+      if (fs.existsSync(tl)) fs.unlinkSync(tl)
+      const mf = this.getModifiedFilesPath(id)
+      if (fs.existsSync(mf)) fs.unlinkSync(mf)
+    } catch {
+      // ignore unlink error
+    }
+
+    return filtered.length < list.length
   }
 
   static getTimeline(sessionId: string): TimelineItem[] {
-    const db = getDatabase()
-    const rows = db.prepare('SELECT * FROM timeline_items WHERE session_id = ? ORDER BY timestamp ASC').all(sessionId) as any[]
-    return rows.map((r) => {
-      const extra = r.data_json ? JSON.parse(r.data_json) : {}
-      return {
-        id: r.id,
-        sessionId: r.session_id,
-        role: r.role,
-        content: r.content,
-        timestamp: r.timestamp,
-        ...extra,
-      }
-    })
+    const list = readJsonSafe<TimelineItem[]>(this.getTimelineFilePath(sessionId), [])
+    return list.sort((a, b) => a.timestamp - b.timestamp)
   }
 
   static saveTimelineItem(item: TimelineItem): void {
-    const db = getDatabase()
-    const { id, sessionId, role, content, timestamp, ...extra } = item
-    const dataJson = Object.keys(extra).length > 0 ? JSON.stringify(extra) : null
-
-    db.prepare(`
-      INSERT INTO timeline_items (id, session_id, role, content, data_json, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        content = excluded.content,
-        data_json = excluded.data_json
-    `).run(id, sessionId, role, content ?? null, dataJson, timestamp)
+    const list = this.getTimeline(item.sessionId)
+    const index = list.findIndex((t) => t.id === item.id)
+    if (index >= 0) {
+      list[index] = item
+    } else {
+      list.push(item)
+    }
+    writeJsonAtomic(this.getTimelineFilePath(item.sessionId), list)
   }
 
   static getModifiedFiles(sessionId: string): WorkspaceFileChange[] {
-    const db = getDatabase()
-    const rows = db.prepare('SELECT * FROM modified_files WHERE session_id = ? ORDER BY updated_at DESC').all(sessionId) as any[]
-    return rows.map((r) => ({
-      path: r.file_path,
-      status: r.status,
-      additions: r.additions,
-      deletions: r.deletions,
-      oldContent: r.old_content ?? undefined,
-      newContent: r.new_content ?? undefined,
-    }))
+    return readJsonSafe<WorkspaceFileChange[]>(this.getModifiedFilesPath(sessionId), [])
   }
 
   static recordModifiedFile(sessionId: string, change: WorkspaceFileChange): void {
-    const db = getDatabase()
-    const id = `${sessionId}_${change.path}`
-    db.prepare(`
-      INSERT INTO modified_files (id, session_id, file_path, status, additions, deletions, old_content, new_content, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        status = excluded.status,
-        additions = excluded.additions,
-        deletions = excluded.deletions,
-        old_content = excluded.old_content,
-        new_content = excluded.new_content,
-        updated_at = excluded.updated_at
-    `).run(
-      id,
-      sessionId,
-      change.path,
-      change.status,
-      change.additions,
-      change.deletions,
-      change.oldContent ?? null,
-      change.newContent ?? null,
-      Date.now(),
-    )
+    const list = this.getModifiedFiles(sessionId)
+    const index = list.findIndex((f) => f.path === change.path)
+    if (index >= 0) {
+      list[index] = change
+    } else {
+      list.push(change)
+    }
+    writeJsonAtomic(this.getModifiedFilesPath(sessionId), list)
   }
 }

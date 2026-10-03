@@ -48,7 +48,7 @@ export const TargetSelector: React.FC = () => {
               }`}
             >
               <div className="flex items-center gap-2">
-                {getStatusBadge(target.status)}
+                {getStatusBadge(target.status ?? 'idle')}
                 <span>{target.label}</span>
               </div>
               <button

@@ -1,11 +1,7 @@
 import path from 'node:path'
-import type { Session, TimelineItem, ToolCall, ToolResult, WebChatTargetId } from '@shared/types'
+import type { Session, TimelineItem, ToolCall, ToolResult } from '@shared/types'
 import { SessionRepository } from '../db/repository'
-import { WEB_CHAT_TARGETS } from '../web-chat/targets'
-import { WindowPool } from '../web-chat/window-pool'
-import { StatusPoller } from '../web-chat/poller'
-import { ResponseScraper } from '../web-chat/scraper'
-import { CdpAutomation } from '../web-chat/cdp'
+import { sendToWebChat, cancelWebChat } from '../web-chat/web-chat-service'
 import { ToolCallParser } from './parser'
 import { PermissionGateway } from './permissions'
 import { buildSystemPrompt } from './prompt'
@@ -92,36 +88,22 @@ export class AgentOrchestrator {
   }
 
   /**
-   * Autonomous multi-turn loop inside the same web-chat session.
+   * Autonomous multi-turn loop inside the same web-chat session using sendToWebChat.
    */
   private static async runLoop(session: Session, prompt: string, signal: AbortSignal): Promise<void> {
-    const targetConfig = WEB_CHAT_TARGETS.find((t) => t.id === session.targetId)
-    if (!targetConfig) throw new Error(`Target ${session.targetId} not configured`)
-
-    const win = await WindowPool.ensureWindow(session.targetId, false)
-    StatusPoller.startPolling(session.targetId, win)
-
     let currentPrompt: string | null = prompt
 
     while (currentPrompt && !signal.aborted) {
-      // 1. Deliver prompt to web chat composer
-      const delivered = await CdpAutomation.deliverPrompt(win, targetConfig, currentPrompt)
-      if (!delivered) {
-        throw new Error(`Failed to deliver prompt to ${targetConfig.label} composer. Is the page loaded?`)
-      }
-
-      // 2. Wait for generation to start and then finish (become confirmed idle)
-      await this.waitForGenerationComplete(session.targetId, signal)
+      // 1. Deliver prompt to web chat and wait for scraped response
+      const sendResult = await sendToWebChat(session.targetId, currentPrompt)
       if (signal.aborted) break
 
-      // 3. Extract assistant response
-      const rawResponse = await ResponseScraper.extractLatestResponse(win, targetConfig)
-      if (!rawResponse) {
-        throw new Error('Received empty response from web chat platform.')
+      if (!sendResult.ok || !sendResult.text) {
+        throw new Error(sendResult.error || 'Received empty response from web chat platform.')
       }
 
-      // 4. Parse response into clean text, thoughts, and tool calls
-      const parsed = ToolCallParser.parse(rawResponse)
+      // 2. Parse response into clean text, thoughts, and tool calls
+      const parsed = ToolCallParser.parse(sendResult.text)
 
       // Post assistant message to timeline
       const assistantItem: TimelineItem = {
@@ -144,7 +126,7 @@ export class AgentOrchestrator {
         break
       }
 
-      // 5. Execute each tool call sequentially
+      // 3. Execute each tool call sequentially
       const toolResults: ToolResult[] = []
 
       for (const call of parsed.toolCalls) {
@@ -155,34 +137,10 @@ export class AgentOrchestrator {
 
       if (signal.aborted) break
 
-      // 6. Format tool results into XML for subsequent turn
+      // 4. Format tool results into XML for subsequent turn
       const nextTurnXml = toolResults.map((r) => ToolCallParser.formatToolResult(r)).join('\n\n')
       currentPrompt = nextTurnXml
     }
-  }
-
-  /**
-   * Wait until WebChat status goes working -> idle.
-   */
-  private static async waitForGenerationComplete(targetId: WebChatTargetId, signal: AbortSignal): Promise<void> {
-    // Wait briefly for working state to register
-    await new Promise((r) => setTimeout(r, 2000))
-
-    return new Promise((resolve, reject) => {
-      const checkInterval = setInterval(() => {
-        if (signal.aborted) {
-          clearInterval(checkInterval)
-          resolve()
-          return
-        }
-
-        const status = StatusPoller.getStatus(targetId)
-        if (status === 'idle') {
-          clearInterval(checkInterval)
-          resolve()
-        }
-      }, 1000)
-    })
   }
 
   /**
@@ -376,6 +334,7 @@ export class AgentOrchestrator {
   }
 
   static abortAgent(sessionId: string): void {
+    cancelWebChat()
     const session = this.activeSessions.get(sessionId)
     if (session) {
       session.abortController.abort()

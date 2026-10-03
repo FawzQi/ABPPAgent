@@ -14,14 +14,9 @@
     "postinstall": "node node_modules/electron/install.js",
     "package:linux": "electron-vite build && electron-builder --linux"
   },
-  "dependencies": {
-    "better-sqlite3": "^11.8.1",
-    "node-pty": "^1.0.0"
-  },
   "devDependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
