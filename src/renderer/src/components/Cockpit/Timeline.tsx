@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { User, Bot, Sparkles } from 'lucide-react'
+import { User, Bot, Sparkles, CheckCircle2 } from 'lucide-react'
 import { useSessionStore } from '../../stores/session-store'
 import { ThinkingCard } from './ThinkingCard'
 import { ToolCard } from './ToolCard'
@@ -55,17 +55,36 @@ export const Timeline: React.FC = () => {
           }
 
           // Assistant message
+          const isFinished = item.isFinish || item.toolCall?.name === 'finish'
           return (
             <div key={item.id} className="flex gap-3 items-start">
-              <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-indigo-400 shrink-0 mt-0.5">
-                <Bot size={14} />
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                  isFinished
+                    ? 'bg-emerald-950/80 border border-emerald-500 text-emerald-400 shadow-sm shadow-emerald-950'
+                    : 'bg-slate-800 border border-slate-700 text-indigo-400'
+                }`}
+              >
+                {isFinished ? <CheckCircle2 size={15} /> : <Bot size={14} />}
               </div>
 
               <div className="flex-1 max-w-3xl space-y-1">
                 {item.thinking && <ThinkingCard thinking={item.thinking} />}
 
                 {item.content && (
-                  <div className="bg-slate-900/70 border border-slate-800/80 rounded-lg p-3 text-xs text-slate-200 leading-relaxed select-text whitespace-pre-wrap">
+                  <div
+                    className={`rounded-lg p-3 text-xs leading-relaxed select-text whitespace-pre-wrap transition-all duration-200 ${
+                      isFinished
+                        ? 'border-2 border-emerald-500 bg-emerald-950/25 text-emerald-100 shadow-lg shadow-emerald-950/50 ring-1 ring-emerald-500/30'
+                        : 'bg-slate-900/70 border border-slate-800/80 text-slate-200'
+                    }`}
+                  >
+                    {isFinished && (
+                      <div className="flex items-center gap-1.5 pb-2 mb-2 border-b border-emerald-500/30 text-emerald-400 font-semibold text-[11px] tracking-wide uppercase">
+                        <CheckCircle2 size={13} className="text-emerald-400" />
+                        <span>Task Finished</span>
+                      </div>
+                    )}
                     {item.content}
                   </div>
                 )}

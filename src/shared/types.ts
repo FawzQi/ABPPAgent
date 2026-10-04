@@ -110,6 +110,7 @@ export interface TimelineItem {
   role: 'user' | 'assistant' | 'tool'
   content?: string
   thinking?: ThinkingBlock
+  isFinish?: boolean
   toolCall?: {
     id: string
     name: string
@@ -164,6 +165,64 @@ export interface WorkspaceFileChange {
   newContent?: string
 }
 
+export type ChatProviderId =
+  | 'deepseek'
+  | 'groq'
+  | 'openai'
+  | 'openrouter'
+  | 'google'
+
+export type AiProviderId = ChatProviderId | 'typesafe'
+
+export type SuggestMethod = 'gitnexus-bm25' | 'hyde-gitnexus-bm25-jev'
+
+export interface AiProviderInfo {
+  id: AiProviderId
+  label: string
+  keyUrl: string
+  models: string[]
+}
+
+export interface FileSuggestionSettings {
+  enabled: boolean
+  method: SuggestMethod
+  provider: AiProviderId
+  modelByProvider: Partial<Record<AiProviderId, string>>
+  hasApiKey: Partial<Record<AiProviderId, boolean>>
+  enableHyde: boolean
+  hydeProvider: ChatProviderId
+  hydeModel: string
+}
+
+export interface FileSuggestionSettingsSaveRequest {
+  enabled?: boolean
+  method?: SuggestMethod
+  provider?: AiProviderId
+  model?: { provider: AiProviderId; model: string }
+  apiKey?: { provider: AiProviderId; key: string }
+  enableHyde?: boolean
+  hydeProvider?: ChatProviderId
+  hydeModel?: string
+}
+
+export const DEFAULT_FILE_SUGGESTION_SETTINGS: FileSuggestionSettings = {
+  enabled: true,
+  method: 'gitnexus-bm25',
+  provider: 'deepseek',
+  modelByProvider: {
+    deepseek: 'deepseek-flash',
+    groq: 'llama-3.3-70b-versatile',
+    openai: 'gpt-4o-mini',
+    openrouter: 'z-ai/glm-5.2:free',
+    google: 'gemini-2.0-flash',
+    typesafe: 'jev-latest',
+  },
+  hasApiKey: {},
+  enableHyde: true,
+  hydeProvider: 'deepseek',
+  hydeModel: 'deepseek-flash',
+}
+
 export interface AgentApi {
   // Session management
   getSessions: () => Promise<Session[]>
@@ -204,6 +263,11 @@ export interface AgentApi {
   // Custom Tools Settings
   updateCustomTools: (sessionId: string, config: CustomToolsConfig) => Promise<CustomToolsConfig>
   getCustomTools: (sessionId: string) => Promise<CustomToolsConfig>
+
+  // File Suggestion & AI Settings
+  getFileSuggestionSettings: () => Promise<FileSuggestionSettings>
+  saveFileSuggestionSettings: (updates: FileSuggestionSettingsSaveRequest) => Promise<FileSuggestionSettings>
+  getAiProviders: () => Promise<AiProviderInfo[]>
 
   // Events / Listeners
   onTimelineUpdate: (callback: (item: TimelineItem) => void) => () => void

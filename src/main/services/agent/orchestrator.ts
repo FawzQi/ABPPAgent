@@ -4,7 +4,7 @@ import { SessionRepository } from '../db/repository'
 import { sendToWebChat, cancelWebChat } from '../web-chat/web-chat-service'
 import { ToolCallParser } from './parser'
 import { PermissionGateway } from './permissions'
-import { buildSystemPrompt } from './prompt'
+import { buildSystemPrompt, appendToolJsonFormatRule, buildToolFormatWarningPrompt } from './prompt'
 import { ProcessRunner } from '../tools/runner'
 import { FilesystemTools } from '../tools/filesystem'
 import { DirectoryExplorer } from '../tools/explorer'
@@ -147,8 +147,8 @@ export class AgentOrchestrator {
 
     let promptToSend = userText
 
-    // Generate codebase context (GitNexus + BM25 + recency) for basis context
-    const codebaseContext = await generateCodebaseContext(session.workspacePath, userText, (abs) => markKnown(sessionId, abs))
+    // Generate codebase context (GitNexus + BM25 + recency) for basis context on every user prompt
+    const codebaseContext = await generateCodebaseContext(session.workspacePath, userText)
 
     if (isFirstTurn) {
       const sysPrompt = buildSystemPrompt(session.workspacePath, codebaseContext || undefined, session.customTools)
@@ -158,6 +158,9 @@ export class AgentOrchestrator {
     } else {
       promptToSend = `# User Goal\n${userText}`
     }
+
+    // Append mandatory tool JSON format rule to the bottom of the prompt
+    promptToSend = appendToolJsonFormatRule(promptToSend)
 
     try {
       await this.runLoop(session, promptToSend, abortController.signal)
@@ -222,8 +225,9 @@ export class AgentOrchestrator {
       }
       if (signal.aborted) break
 
-      // 1. Deliver prompt to web chat and wait for scraped response
-      const sendResult = await sendToWebChat(session.targetId, currentPrompt, sendDelayMs)
+      // 1. Deliver prompt to web chat (with mandatory tool JSON rule at the bottom) and wait for scraped response
+      const promptToDeliver = appendToolJsonFormatRule(currentPrompt)
+      const sendResult = await sendToWebChat(session.targetId, promptToDeliver, sendDelayMs)
       if (signal.aborted) break
 
       // Mark the cooldown timer start IMMEDIATELY upon receiving response from LLM chat
@@ -244,6 +248,7 @@ export class AgentOrchestrator {
         content: parsed.cleanContent || undefined,
         thinking: parsed.thinking,
         timestamp: Date.now(),
+        isFinish: parsed.finished,
       }
       SessionRepository.saveTimelineItem(assistantItem)
       this.callbacks?.onTimelineUpdate(assistantItem)
@@ -257,79 +262,44 @@ export class AgentOrchestrator {
         break
       }
 
-      // 3. Autonomous recovery checks (Agent Doubt / Helplessness or Tool Format Errors)
+      // 3. Autonomous recovery checks (If no tool calls are parsed and model didn't finish)
       if (parsed.toolCalls.length === 0) {
-        // A. Agent Doubt / Helplessness Check: Detect when agent falsely believes tools were removed
-        if (AgentDoubtDetector.hasDoubtOrHelplessness(sendResult.text) && recoveryAttempts < 3) {
+        if (recoveryAttempts < 3) {
           recoveryAttempts++
-          const alertItem: TimelineItem = {
-            id: `msg_${Date.now()}_doubt_reanchor`,
+
+          let issue = parsed.formatError || 'Your response did not include a JSON tool call object.'
+          if (AgentDoubtDetector.hasDoubtOrHelplessness(sendResult.text)) {
+            issue = 'Agent expressed doubt about tool availability. Notice: all workspace tools listed below are 100% active and autonomous in your session.'
+          } else if (AgentIntentDetector.isVagueOrUnfulfilled(sendResult.text)) {
+            issue = 'Your response was conversational or unfulfilled without invoking an active tool.'
+          }
+
+          const warnItem: TimelineItem = {
+            id: `msg_${Date.now()}_format_warn`,
             sessionId: session.id,
             role: 'assistant',
-            content: `⚠️ Agent expressed doubt about tool availability. Automatically injecting environment re-anchor (attempt ${recoveryAttempts}/3)...`,
+            content: `⚠️ Web chat LLM did not reply in tools JSON format. Sending warning with complete available tools format (attempt ${recoveryAttempts}/3)...`,
             timestamp: Date.now(),
           }
-          SessionRepository.saveTimelineItem(alertItem)
-          this.callbacks?.onTimelineUpdate(alertItem)
+          SessionRepository.saveTimelineItem(warnItem)
+          this.callbacks?.onTimelineUpdate(warnItem)
 
-          currentPrompt = `# System Notice: Workspace Environment Active\nAll local workspace tools (read_file, read_file_full, write_file, replace_file_content, run_command, list_directory, git_*) are 100% ACTIVE and READY in your current session.\nYou have full autonomous access to the workspace shell and filesystem. Do NOT ask the user to run terminal commands for you.\nPlease resume your autonomous task immediately using the appropriate tool call.`
+          currentPrompt = buildToolFormatWarningPrompt(session.customTools, issue)
           continue
         }
 
-        // B. Tool Call Formatting Error Check
-        if ((parsed.formatError || ToolCallParser.hasToolCallAttempt(sendResult.text)) && recoveryAttempts < 3) {
-          recoveryAttempts++
-          const nudgeItem: TimelineItem = {
-            id: `msg_${Date.now()}_nudge`,
-            sessionId: session.id,
-            role: 'assistant',
-            content: `⚠️ Tool call formatting error detected in response. Automatically requesting re-formatting (attempt ${recoveryAttempts}/3)...`,
-            timestamp: Date.now(),
-          }
-          SessionRepository.saveTimelineItem(nudgeItem)
-          this.callbacks?.onTimelineUpdate(nudgeItem)
-
-          currentPrompt = formatErrorPrompt(parsed.formatError)
-          continue
-        }
-
-        // C. Vague Response / Unfulfilled Action Check
-        if (AgentIntentDetector.isVagueOrUnfulfilled(sendResult.text) && recoveryAttempts < 3) {
-          recoveryAttempts++
-          const intentItem: TimelineItem = {
-            id: `msg_${Date.now()}_intent_nudge`,
-            sessionId: session.id,
-            role: 'assistant',
-            content: `⚠️ Vague response without tool call detected. Prompting for strict tool execution (attempt ${recoveryAttempts}/3)...`,
-            timestamp: Date.now(),
-          }
-          SessionRepository.saveTimelineItem(intentItem)
-          this.callbacks?.onTimelineUpdate(intentItem)
-
-          currentPrompt = formatErrorPrompt('Your response was vague: it invoked no tool and did not finish the task.')
-          continue
-        }
-
-        if (recoveryAttempts >= 3) {
-          session.status = 'paused'
-          session.updatedAt = Date.now()
-          const stalledItem: TimelineItem = {
-            id: `msg_${Date.now()}_stalled`,
-            sessionId: session.id,
-            role: 'assistant',
-            content: `⚠️ Agent paused: Maximum recovery attempts (3) exceeded without tool execution.`,
-            timestamp: Date.now(),
-          }
-          SessionRepository.saveTimelineItem(stalledItem)
-          this.callbacks?.onTimelineUpdate(stalledItem)
-          SessionRepository.saveSession(session)
-          this.callbacks?.onSessionUpdate(session)
-          break
-        }
-
-        // If no tool calls and no doubt or attempt or pending intent, task is complete
-        session.status = 'idle'
+        // If recovery attempts exceeded 3, pause and notify
+        session.status = 'paused'
         session.updatedAt = Date.now()
+        const stalledItem: TimelineItem = {
+          id: `msg_${Date.now()}_stalled`,
+          sessionId: session.id,
+          role: 'assistant',
+          content: `⚠️ Agent paused: Web chat LLM failed to reply in tools JSON format after 3 warning attempts.`,
+          timestamp: Date.now(),
+        }
+        SessionRepository.saveTimelineItem(stalledItem)
+        this.callbacks?.onTimelineUpdate(stalledItem)
         SessionRepository.saveSession(session)
         this.callbacks?.onSessionUpdate(session)
         break

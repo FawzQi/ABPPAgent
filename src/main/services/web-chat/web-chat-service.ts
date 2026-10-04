@@ -590,9 +590,9 @@ const STATUS_INSPECTION_SCRIPT = `(() => {
     if (isVisible(el)) return 'working';
   }
 
-  // E. Thinking / reasoning / loading / busy state
+  // E. Active loading / busy state (exclude static completed thinking/reasoning containers)
   const busyEls = document.querySelectorAll(
-    '.ds-thinking, [class*="thinking" i], [class*="reasoning" i], [class*="generating" i], [class*="loading" i], [class*="spinner" i], [aria-busy="true"], mat-progress-spinner, [role="progressbar"]'
+    '.animate-spin, svg[class*="spin" i], [aria-busy="true"], mat-progress-spinner, [role="progressbar"]'
   );
   for (const el of busyEls) {
     if (isVisible(el)) {
@@ -1150,11 +1150,17 @@ function buildScript(target: WebChatTarget, prompt: string, sendDelayMs: number 
   // still reasoning, since a placeholder's text does not change and would
   // otherwise be mistaken for a finished reply after two seconds.
   const isBusyIndicator = () => {
+    // Only elements with active animations, loading spinners, or explicit aria-busy=true
+    // DO NOT match static [class*="thinking"] or [class*="reasoning"] because modern models (DeepSeek, etc.)
+    // keep completed thought containers in the DOM forever after finishing!
     const els = document.querySelectorAll(
-      '[class*="thinking" i], [class*="reasoning" i], [class*="generating" i], [class*="loading" i], [class*="spinner" i], [aria-busy="true"]',
+      '[aria-busy="true"], .animate-spin, svg[class*="spin" i], mat-progress-spinner, [role="progressbar"], .ds-cursor, .result-streaming, [data-is-streaming="true"], span[class~="cursor" i]'
     );
     for (const el of els) {
-      if (el.offsetParent !== null) return true;
+      if (el.offsetParent !== null) {
+        if (el.closest('nav, aside, [role="navigation"], [class*="sidebar" i], [class*="history" i], [class*="chat-list" i]')) continue;
+        return true;
+      }
     }
     return false;
   };
@@ -1174,42 +1180,27 @@ function buildScript(target: WebChatTarget, prompt: string, sendDelayMs: number 
     await sleep(500);
 
     const nodes = queryAll(respSels);
-    // The reply to *this* turn exists only when either a new element has
-    // appeared since the baseline or the last element's text has changed
-    // from it. Both are checked because sites differ: some append a fresh
-    // assistant message per turn, others replace the last element's
-    // content in place. Without this check the loop reads the previous
-    // turn's reply — which never changes — and reports it as the answer
-    // after two stable seconds, which is exactly the early-return that
-    // flipped the indicator to idle while the model was still thinking.
-    const lastNodeText =
-      nodes.length > 0
-        ? cleanAssistantText(nodes[nodes.length - 1])
-        : '';
+    const lastNode = nodes.length > 0 ? nodes[nodes.length - 1] : null;
+    const lastNodeText = lastNode ? cleanAssistantText(lastNode) : '';
     const hasNewTurn =
       nodes.length > baselineCount || lastNodeText !== baselineText;
     if (!hasNewTurn) {
       // Still the previous turn (or nothing rendered yet). The model may
       // be in its reasoning phase, or the site has not created the new
-      // message element. Stay in working and keep polling — do not fall
-      // through to the stability check, which has nothing to measure yet.
+      // message element. Stay in working and keep polling.
       window.__AnythingButProPlanWebChatStatus = 'working';
       continue;
     }
 
-    let current = '';
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const t = cleanAssistantText(nodes[i]);
-      if (t) { current = t; break; }
-    }
-    if (!current) {
-      // The new message element exists but is still empty — the model is
-      // thinking and has not emitted text yet.
+    // Only read the newest turn node! Never walk backwards into previous turns' responses!
+    const current = lastNodeText;
+    if (!current || current === baselineText) {
       window.__AnythingButProPlanWebChatStatus = 'working';
       continue;
     }
     sawAny = true;
 
+    const generating = isGenerating();
     const pauseBtn = isPaused();
     if (pauseBtn) {
       try {
@@ -1221,27 +1212,26 @@ function buildScript(target: WebChatTarget, prompt: string, sendDelayMs: number 
       } catch (e) {}
     }
     const paused = !!pauseBtn;
-    // Some sites render a placeholder ("Thinking…", a spinner) in the
-    // reply element while the model reasons. That text does not change,
-    // so the stability counter would fire on it and return the
-    // placeholder as the finished answer. A visible element whose class
-    // or aria names a common busy state suppresses the counter.
-    const busyPlaceholder = isBusyIndicator();
-    window.__AnythingButProPlanWebChatStatus = paused ? 'paused' : 'working';
+    const busy = isBusyIndicator();
+    window.__AnythingButProPlanWebChatStatus = (paused || generating || busy) ? (paused ? 'paused' : 'working') : 'working';
+
+    // Check if send button is back and re-enabled (strong signal that generation finished)
+    const sendBtnNow = queryFirst(sendSels);
+    const sendReady = sendBtnNow && !sendBtnNow.disabled && sendBtnNow.getAttribute('aria-disabled') !== 'true';
 
     if (
       current === lastText &&
-      !isGenerating() &&
+      !generating &&
       !paused &&
-      !busyPlaceholder
+      !busy
     ) {
+      const hasCompleteToolJson = /"tool_call_name"\s*:\s*"[^"]+"/i.test(current);
+      const targetStableMs = (sendReady || hasCompleteToolJson) ? 1000 : 1500;
+
       stableMs += 500;
-      if (stableMs >= 2000) {
+      if (stableMs >= targetStableMs) {
         // Pacing: Wait 1 second after response finishes streaming before returning
         await sleep(1000);
-        // The reply has settled. Report it as stable: true so the main
-        // process knows to attempt the copy-to-clipboard upgrade before
-        // falling back to this text.
         window.__AnythingButProPlanWebChatStatus = 'idle';
         return { ok: true, stable: true, text: current };
       }

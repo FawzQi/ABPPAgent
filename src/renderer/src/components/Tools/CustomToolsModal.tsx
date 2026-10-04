@@ -1,13 +1,24 @@
 import React, { useEffect, useState } from 'react'
-import { X, Wrench, Terminal, FileText, Search, Network, FileEdit, Clock, Sliders, Zap, Check } from 'lucide-react'
+import { X, Wrench, Terminal, FileText, Search, Network, FileEdit, Clock, Sliders, Zap, Check, Sparkles, Key, Eye, EyeOff, ExternalLink } from 'lucide-react'
 import { useToolsStore } from '../../stores/tools-store'
 import { useSessionStore } from '../../stores/session-store'
-import type { CustomToolsConfig } from '@shared/types'
+import type { CustomToolsConfig, FileSuggestionSettings, AiProviderId, ChatProviderId, AiProviderInfo } from '@shared/types'
 
 export const CustomToolsModal: React.FC = () => {
   const { isOpen, config, closeModal, toggleTool, loadConfig } = useToolsStore()
   const { activeSession, updateDelays } = useSessionStore()
-  const [activeTab, setActiveTab] = useState<'tools' | 'delays'>('tools')
+  const [activeTab, setActiveTab] = useState<'tools' | 'delays' | 'suggest'>('tools')
+
+  const [suggestSettings, setSuggestSettings] = useState<FileSuggestionSettings | null>(null)
+  const [aiProviders, setAiProviders] = useState<AiProviderInfo[]>([])
+  const [selectedProvider, setSelectedProvider] = useState<ChatProviderId>('deepseek')
+  const [apiKeyDraft, setApiKeyDraft] = useState('')
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [keySavedMessage, setKeySavedMessage] = useState(false)
+
+  const [typesafeKeyDraft, setTypesafeKeyDraft] = useState('')
+  const [showTypesafeKey, setShowTypesafeKey] = useState(false)
+  const [typesafeSavedMessage, setTypesafeSavedMessage] = useState(false)
 
   const cooldownTimer = activeSession?.delays?.cooldownTimerMs ?? activeSession?.delays?.sendPromptDelayMs ?? 3000
   const sendDelay = activeSession?.delays?.sendDelayMs ?? activeSession?.delays?.interactionDelayMs ?? 1000
@@ -18,6 +29,19 @@ export const CustomToolsModal: React.FC = () => {
       loadConfig(activeSession.id)
     }
   }, [activeSession?.id])
+
+  useEffect(() => {
+    if (isOpen && window.agentApi) {
+      window.agentApi.getFileSuggestionSettings().then((s) => {
+        setSuggestSettings(s)
+        const prov = (s.hydeProvider || s.provider || 'deepseek') as ChatProviderId
+        setSelectedProvider(prov === ('typesafe' as any) ? 'deepseek' : prov)
+      }).catch(() => {})
+      window.agentApi.getAiProviders().then((p) => {
+        setAiProviders(p)
+      }).catch(() => {})
+    }
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -65,6 +89,52 @@ export const CustomToolsModal: React.FC = () => {
       sendPromptDelayMs: cooldownMs,
       interactionDelayMs: sendMs,
     })
+  }
+
+  const handleUpdateSuggest = async (updates: any) => {
+    if (!window.agentApi) return
+    const updated = await window.agentApi.saveFileSuggestionSettings(updates)
+    setSuggestSettings(updated)
+  }
+
+  const handleSaveApiKey = async () => {
+    if (!window.agentApi || !apiKeyDraft.trim()) return
+    const updated = await window.agentApi.saveFileSuggestionSettings({
+      apiKey: { provider: selectedProvider, key: apiKeyDraft.trim() },
+    })
+    setSuggestSettings(updated)
+    setApiKeyDraft('')
+    setKeySavedMessage(true)
+    setTimeout(() => setKeySavedMessage(false), 3000)
+  }
+
+  const handleClearApiKey = async () => {
+    if (!window.agentApi) return
+    const updated = await window.agentApi.saveFileSuggestionSettings({
+      apiKey: { provider: selectedProvider, key: '' },
+    })
+    setSuggestSettings(updated)
+    setApiKeyDraft('')
+  }
+
+  const handleSaveTypesafeKey = async () => {
+    if (!window.agentApi || !typesafeKeyDraft.trim()) return
+    const updated = await window.agentApi.saveFileSuggestionSettings({
+      apiKey: { provider: 'typesafe', key: typesafeKeyDraft.trim() },
+    })
+    setSuggestSettings(updated)
+    setTypesafeKeyDraft('')
+    setTypesafeSavedMessage(true)
+    setTimeout(() => setTypesafeSavedMessage(false), 3000)
+  }
+
+  const handleClearTypesafeKey = async () => {
+    if (!window.agentApi) return
+    const updated = await window.agentApi.saveFileSuggestionSettings({
+      apiKey: { provider: 'typesafe', key: '' },
+    })
+    setSuggestSettings(updated)
+    setTypesafeKeyDraft('')
   }
 
   const toolItems = [
@@ -120,7 +190,7 @@ export const CustomToolsModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700/80 rounded-lg shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="w-full max-w-xl max-h-[85vh] bg-slate-900 border border-slate-700/80 rounded-lg shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/60">
           <div className="flex items-center gap-2">
@@ -164,10 +234,21 @@ export const CustomToolsModal: React.FC = () => {
             <Clock size={13} />
             <span>Pacing & Delays</span>
           </button>
+          <button
+            onClick={() => setActiveTab('suggest')}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition cursor-pointer ${
+              activeTab === 'suggest'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Sparkles size={13} />
+            <span>File Suggestion</span>
+          </button>
         </div>
 
         {/* Modal Body */}
-        {activeTab === 'tools' ? (
+        {activeTab === 'tools' && (
           <div className="p-4 space-y-3 max-h-[65vh] overflow-y-auto">
             {toolItems.map((item) => (
               <div
@@ -210,7 +291,10 @@ export const CustomToolsModal: React.FC = () => {
               </div>
             ))}
           </div>
-        ) : (
+        )}
+
+        {/* Tab 2: Pacing & Delays */}
+        {activeTab === 'delays' && (
           <div className="p-4 space-y-4 max-h-[65vh] overflow-y-auto">
             {/* Delay 1: Cooldown Timer */}
             <div className="p-3.5 rounded-lg border border-slate-800 bg-slate-950/40 space-y-3">
@@ -392,6 +476,382 @@ export const CustomToolsModal: React.FC = () => {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Tab 3: File Suggestion (HyDE & Jev) */}
+        {activeTab === 'suggest' && (
+          <div className="p-4 space-y-4 max-h-[65vh] overflow-y-auto">
+            {/* Master Toggle */}
+            <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/40">
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={suggestSettings?.enabled ?? true}
+                  onChange={(e) => handleUpdateSuggest({ enabled: e.target.checked })}
+                  className="mt-0.5 size-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 focus:ring-offset-0 accent-indigo-500 cursor-pointer"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={14} className="text-indigo-400" />
+                    <span className="text-xs font-medium text-slate-200">
+                      Enable Codebase Context & File Suggestions
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Automatically scans the repository to inject project structure and relevant file contents into the prompt for higher accuracy.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {/* Pipeline Selector */}
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-slate-300 block">
+                File Suggestion Method
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                <div
+                  onClick={() => handleUpdateSuggest({ method: 'gitnexus-bm25' })}
+                  className={`p-3 rounded-lg border cursor-pointer transition select-none ${
+                    (suggestSettings?.method ?? 'gitnexus-bm25') === 'gitnexus-bm25'
+                      ? 'bg-indigo-950/30 border-indigo-500/80 text-slate-200'
+                      : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-200">GitNexus + BM25</span>
+                    {(suggestSettings?.method ?? 'gitnexus-bm25') === 'gitnexus-bm25' && (
+                      <Check size={14} className="text-indigo-400" />
+                    )}
+                  </div>
+                  <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/40 text-[10px] text-emerald-300 font-mono">
+                    100% Offline • 0 Tokens
+                  </span>
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    Local recall using GitNexus graph query, BM25 shallow index, and git recency/co-change. No API calls or keys required.
+                  </p>
+                </div>
+
+                <div
+                  onClick={() => handleUpdateSuggest({ method: 'hyde-gitnexus-bm25-jev' })}
+                  className={`p-3 rounded-lg border cursor-pointer transition select-none ${
+                    suggestSettings?.method === 'hyde-gitnexus-bm25-jev'
+                      ? 'bg-indigo-950/30 border-indigo-500/80 text-slate-200'
+                      : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-200">HyDE + GitNexus + BM25 + Jev</span>
+                    {suggestSettings?.method === 'hyde-gitnexus-bm25-jev' && (
+                      <Check size={14} className="text-indigo-400" />
+                    )}
+                  </div>
+                  <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-indigo-950/60 border border-indigo-800/40 text-[10px] text-indigo-300 font-mono">
+                    AI Expansion & Precision Scoring
+                  </span>
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    Stage-1 HyDE AI expansion + local hybrid search + token-efficient skeletons + Jev calibrated 0–3 relevance scoring.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* HyDE Provider, Model & API Key Configuration */}
+            <div className="p-3.5 rounded-lg border border-slate-800 bg-slate-950/40 space-y-3.5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Key size={13} className="text-amber-400" />
+                    HyDE Query Expansion Provider
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Chat model used for Stage-1 Hypothetical Document Embeddings (query expansion).
+                  </p>
+                </div>
+              </div>
+
+              {/* Provider Selection Pills (Excludes TypeSafe Jev) */}
+              <div>
+                <label className="text-[11px] font-medium text-slate-400 block mb-1.5">Select Chat Provider for HyDE</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {(aiProviders.length > 0 ? aiProviders : [
+                    { id: 'deepseek', label: 'DeepSeek', keyUrl: 'https://platform.deepseek.com/api_keys', models: ['deepseek-flash', 'deepseek-chat'] },
+                    { id: 'groq', label: 'Groq', keyUrl: 'https://console.groq.com/keys', models: ['llama-3.3-70b-versatile'] },
+                    { id: 'openai', label: 'OpenAI', keyUrl: 'https://platform.openai.com/api-keys', models: ['gpt-4o-mini', 'gpt-4o'] },
+                    { id: 'openrouter', label: 'OpenRouter', keyUrl: 'https://openrouter.ai/keys', models: ['z-ai/glm-5.2:free'] },
+                    { id: 'google', label: 'Google AI Studio', keyUrl: 'https://aistudio.google.com/apikey', models: ['gemini-2.0-flash'] },
+                  ])
+                    .filter((p) => p.id !== 'typesafe')
+                    .map((p) => {
+                      const isSelected = selectedProvider === p.id
+                      const hasKey = suggestSettings?.hasApiKey[p.id as AiProviderId]
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedProvider(p.id as ChatProviderId)
+                            handleUpdateSuggest({
+                              hydeProvider: p.id as ChatProviderId,
+                              provider: p.id as ChatProviderId,
+                            })
+                          }}
+                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium border transition cursor-pointer ${
+                            isSelected
+                              ? 'border-indigo-500 bg-indigo-950/60 text-indigo-200'
+                              : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                          }`}
+                        >
+                          <span>{p.label}</span>
+                          {hasKey && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Key Configured" />}
+                        </button>
+                      )
+                    })}
+                </div>
+              </div>
+
+              {/* Active Provider Details */}
+              {(() => {
+                const activeInfo = aiProviders.find((p) => p.id === selectedProvider)
+                const hasKey = suggestSettings?.hasApiKey[selectedProvider]
+                const currentModel =
+                  suggestSettings?.hydeModel ||
+                  suggestSettings?.modelByProvider[selectedProvider] ||
+                  activeInfo?.models[0] ||
+                  ''
+
+                return (
+                  <div className="pt-2 border-t border-slate-800/80 space-y-3">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-300 font-medium">{activeInfo?.label || selectedProvider}</span>
+                      {activeInfo?.keyUrl && (
+                        <a
+                          href={activeInfo.keyUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline"
+                        >
+                          <span>Get API Key</span>
+                          <ExternalLink size={10} />
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Model Configuration */}
+                    <div>
+                      <label className="text-[11px] font-medium text-slate-400 block mb-1">Model Name</label>
+                      <input
+                        type="text"
+                        value={currentModel}
+                        onChange={(e) =>
+                          handleUpdateSuggest({
+                            hydeModel: e.target.value,
+                            model: { provider: selectedProvider, model: e.target.value },
+                          })
+                        }
+                        placeholder="e.g. deepseek-flash"
+                        className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                      {activeInfo && activeInfo.models.length > 1 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {activeInfo.models.map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() =>
+                                handleUpdateSuggest({
+                                  hydeModel: m,
+                                  model: { provider: selectedProvider, model: m },
+                                })
+                              }
+                              className={`text-[10px] px-1.5 py-0.5 rounded border transition cursor-pointer ${
+                                currentModel === m
+                                  ? 'border-indigo-500/70 bg-indigo-950/40 text-indigo-300'
+                                  : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:border-slate-700'
+                              }`}
+                            >
+                              {m}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* API Key Input */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-medium text-slate-400">
+                          API Key {hasKey && <span className="text-emerald-400 ml-1 font-normal">(✓ Saved)</span>}
+                        </label>
+                        {hasKey && (
+                          <button
+                            type="button"
+                            onClick={handleClearApiKey}
+                            className="text-[10px] text-rose-400 hover:text-rose-300 hover:underline cursor-pointer"
+                          >
+                            Remove Key
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="relative flex-1">
+                          <input
+                            type={showApiKey ? 'text' : 'password'}
+                            value={apiKeyDraft}
+                            onChange={(e) => setApiKeyDraft(e.target.value)}
+                            placeholder={hasKey ? '••••••••••••••••••••••••••••••••' : 'Paste API key here...'}
+                            className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono pr-8"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                          >
+                            {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleSaveApiKey}
+                          disabled={!apiKeyDraft.trim()}
+                          className={`px-3 py-1.5 rounded text-xs font-medium transition cursor-pointer shrink-0 ${
+                            apiKeyDraft.trim()
+                              ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                              : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                          }`}
+                        >
+                          Save
+                        </button>
+                      </div>
+                      {keySavedMessage && (
+                        <p className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
+                          <Check size={11} /> Key encrypted and saved securely!
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Dedicated TypeSafe (Jev) Precision Scoring Section */}
+            <div className="p-3.5 rounded-lg border border-slate-800 bg-slate-950/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                      <Sparkles size={13} className="text-indigo-400" />
+                      TypeSafe (Jev) Precision Scoring
+                    </h3>
+                    {suggestSettings?.hasApiKey['typesafe'] ? (
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/40 text-[10px] text-emerald-300 font-mono">
+                        ✓ Configured
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded bg-slate-800/60 border border-slate-700/40 text-[10px] text-slate-400 font-mono">
+                        No API Key
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Jev is used exclusively for candidate precision scoring on a calibrated 0–3 relevance rubric.
+                  </p>
+                </div>
+                <a
+                  href="https://typesafe.ai/console"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline"
+                >
+                  <span>Get Jev Key</span>
+                  <ExternalLink size={10} />
+                </a>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                <div className="p-2 rounded bg-slate-900/60 border border-slate-800">
+                  <span className="text-slate-400 block font-medium">Scoring Model:</span>
+                  <span className="text-slate-200 font-mono">jev-latest</span>
+                </div>
+                <div className="p-2 rounded bg-slate-900/60 border border-slate-800">
+                  <span className="text-slate-400 block font-medium">Calibrated Inclusion:</span>
+                  <span className="text-slate-200">Score ≥ 3 & Conf ≥ 85%</span>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-medium text-slate-400">
+                    TypeSafe API Key {suggestSettings?.hasApiKey['typesafe'] && <span className="text-emerald-400 ml-1 font-normal">(✓ Saved)</span>}
+                  </label>
+                  {suggestSettings?.hasApiKey['typesafe'] && (
+                    <button
+                      type="button"
+                      onClick={handleClearTypesafeKey}
+                      className="text-[10px] text-rose-400 hover:text-rose-300 hover:underline cursor-pointer"
+                    >
+                      Remove Key
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="relative flex-1">
+                    <input
+                      type={showTypesafeKey ? 'text' : 'password'}
+                      value={typesafeKeyDraft}
+                      onChange={(e) => setTypesafeKeyDraft(e.target.value)}
+                      placeholder={suggestSettings?.hasApiKey['typesafe'] ? '••••••••••••••••••••••••••••••••' : 'Paste TypeSafe API key here...'}
+                      className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono pr-8"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowTypesafeKey(!showTypesafeKey)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    >
+                      {showTypesafeKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveTypesafeKey}
+                    disabled={!typesafeKeyDraft.trim()}
+                    className={`px-3 py-1.5 rounded text-xs font-medium transition cursor-pointer shrink-0 ${
+                      typesafeKeyDraft.trim()
+                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    Save
+                  </button>
+                </div>
+                {typesafeSavedMessage && (
+                  <p className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
+                    <Check size={11} /> TypeSafe key encrypted and saved securely!
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* HyDE Option when HyDE mode is chosen */}
+            {suggestSettings?.method === 'hyde-gitnexus-bm25-jev' && (
+              <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/40 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={suggestSettings.enableHyde ?? true}
+                    onChange={(e) => handleUpdateSuggest({ enableHyde: e.target.checked })}
+                    className="size-3.5 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 accent-indigo-500 cursor-pointer"
+                  />
+                  <span className="text-xs font-medium text-slate-300">
+                    Use HyDE AI Query Expansion (Hypothetical Document Embeddings)
+                  </span>
+                </label>
+                <p className="text-[11px] text-slate-500 pl-5.5">
+                  Translates high-level feature requests into concrete code identifiers and function names using a fast Stage-1 prompt.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

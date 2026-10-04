@@ -1,11 +1,9 @@
 import type { CustomToolsConfig } from '@shared/types'
 import { DEFAULT_CUSTOM_TOOLS_CONFIG } from '@shared/types'
 
-export function buildSystemPrompt(
-  workspacePath: string,
-  projectContext?: string,
-  customTools: CustomToolsConfig = DEFAULT_CUSTOM_TOOLS_CONFIG
-): string {
+export function getAvailableToolsList(
+  customTools: CustomToolsConfig = DEFAULT_CUSTOM_TOOLS_CONFIG,
+): string[] {
   const tools: string[] = []
   let toolIndex = 1
 
@@ -117,6 +115,110 @@ Parameters:
 }`)
   }
 
+  // 9. Finish tool
+  tools.push(`${toolIndex++}. finish
+Declares the engineering task complete and verified. This is the ONLY way to complete a task.
+Parameters:
+{
+  "summary"?: string // concise summary of what was implemented and verified
+}`)
+
+  return tools
+}
+
+export function formatAvailableTools(
+  customTools: CustomToolsConfig = DEFAULT_CUSTOM_TOOLS_CONFIG,
+): string {
+  return getAvailableToolsList(customTools).join('\n\n')
+}
+
+export function appendToolJsonFormatRule(prompt: string): string {
+  const RULE_HEADER = '### Strict Response Requirement (MANDATORY)'
+  if (prompt.includes(RULE_HEADER)) return prompt
+
+  return `${prompt.trim()}
+
+---
+${RULE_HEADER}
+You MUST respond with a valid JSON tool call object (or a JSON array if batching multiple tools).
+Do NOT include conversational narration, explanations, or code outside the tool JSON format.
+Every response MUST follow this exact format:
+\`\`\`json
+{
+  "thought": "Brief step-by-step reasoning explaining what you are doing",
+  "tool_call_name": "<name of tool from AVAILABLE TOOLS>",
+  "parameter": { ... }
+}
+\`\`\`
+
+If your task is complete and verified, you MUST invoke the "finish" tool:
+\`\`\`json
+{
+  "thought": "The requested task is complete and verified",
+  "tool_call_name": "finish",
+  "parameter": { "summary": "Concise summary of what was done" }
+}
+\`\`\`
+`
+}
+
+export function buildToolFormatWarningPrompt(
+  customTools: CustomToolsConfig = DEFAULT_CUSTOM_TOOLS_CONFIG,
+  details?: string,
+): string {
+  const toolsFormatted = formatAvailableTools(customTools)
+
+  return `# WARNING: Response Must Be in Tools JSON Format!
+
+Your previous response did NOT include a valid JSON tool call. You must reply strictly in the tools JSON format. Do not send conversational commentary without a tool call.
+${details ? `\nDetails: ${details}\n` : ''}
+## Required Response Format:
+\`\`\`json
+{
+  "thought": "Step-by-step reasoning explaining why you are invoking this tool",
+  "tool_call_name": "<tool_name>",
+  "parameter": { ... }
+}
+\`\`\`
+
+Or for multiple batched calls:
+\`\`\`json
+[
+  {
+    "thought": "First action reasoning",
+    "tool_call_name": "<tool_1>",
+    "parameter": { ... }
+  },
+  {
+    "thought": "Second action reasoning",
+    "tool_call_name": "<tool_2>",
+    "parameter": { ... }
+  }
+]
+\`\`\`
+
+If the user's task is already complete or no more actions are needed, call the "finish" tool:
+\`\`\`json
+{
+  "thought": "The requested task is complete",
+  "tool_call_name": "finish",
+  "parameter": { "summary": "Description of work done" }
+}
+\`\`\`
+
+## Complete Available Tools & Parameter Schemas:
+${toolsFormatted}
+
+Please provide your response now in the required tool JSON format.`
+}
+
+export function buildSystemPrompt(
+  workspacePath: string,
+  projectContext?: string,
+  customTools: CustomToolsConfig = DEFAULT_CUSTOM_TOOLS_CONFIG,
+): string {
+  const toolsText = formatAvailableTools(customTools)
+
   return `# Autonomous Software Engineering Agent
 You are an expert autonomous software engineering agent running inside the user's workspace.
 You interact with the workspace and user using structured tool calls.
@@ -126,7 +228,8 @@ ${workspacePath}
 
 ${projectContext ? `${projectContext}\n` : ''}
 ## Available Tools
-${tools.join('\n\n')}
+${toolsText}
+
 
 ## Strict Output Format (Every Reply)
 Reply with a JSON object (or JSON array for batched tools) and nothing else: no conversational commentary outside the JSON, no XML, no proprietary tokens.

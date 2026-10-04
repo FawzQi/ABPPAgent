@@ -13,6 +13,8 @@ import {
 import { AgentOrchestrator } from './services/agent/orchestrator'
 import { DirectoryExplorer } from './services/tools/explorer'
 import * as GitService from './services/git/git-service'
+import { getFileSuggestionSettings, saveFileSuggestionSettings } from './services/agent/ai-settings'
+import { listProviders } from './services/agent/ai-providers'
 
 export function registerIpcHandlers(): void {
   // Broadcast helper
@@ -206,5 +208,18 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.GET_CUSTOM_TOOLS, async (_e, sessionId: string) => {
     const session = SessionRepository.getSessionById(sessionId)
     return session?.customTools || DEFAULT_CUSTOM_TOOLS_CONFIG
+  })
+
+  // 7. File Suggestion & AI Settings
+  ipcMain.handle(IPC_CHANNELS.GET_FILE_SUGGESTION_SETTINGS, async () => {
+    return getFileSuggestionSettings()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SAVE_FILE_SUGGESTION_SETTINGS, async (_e, updates: any) => {
+    return saveFileSuggestionSettings(updates)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.GET_AI_PROVIDERS, async () => {
+    return listProviders()
   })
 }

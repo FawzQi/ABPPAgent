@@ -54,6 +54,14 @@ const agentApi: AgentApi = {
   getCustomTools: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_CUSTOM_TOOLS, sessionId),
 
+  // File Suggestion & AI Settings
+  getFileSuggestionSettings: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_FILE_SUGGESTION_SETTINGS),
+  saveFileSuggestionSettings: (updates: any) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_FILE_SUGGESTION_SETTINGS, updates),
+  getAiProviders: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_AI_PROVIDERS),
+
   onTimelineUpdate: (callback: (item: TimelineItem) => void) => {
     const handler = (_event: any, item: TimelineItem) => callback(item)
     ipcRenderer.on(IPC_CHANNELS.EVENT_TIMELINE_UPDATE, handler)

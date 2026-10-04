@@ -20,6 +20,20 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
 
   const { id, name, args, status, result, terminalStream, diff } = toolCall
 
+  // 0. Finish Tool Call
+  if (name === 'finish') {
+    return (
+      <div className="my-2 p-3 rounded-lg border-2 border-emerald-500 bg-emerald-950/25 shadow-lg shadow-emerald-950/40 ring-1 ring-emerald-500/30 text-xs">
+        <div className="flex items-center gap-1.5 pb-2 mb-2 border-b border-emerald-500/30 text-emerald-400 font-semibold text-[11px] tracking-wide uppercase">
+          <CheckCircle size={14} className="text-emerald-400" />
+          <span>Task Finished</span>
+        </div>
+        {args?.thought && <p className="text-slate-300 italic mb-2">{args.thought}</p>}
+        {result?.output && <div className="text-emerald-200 select-text whitespace-pre-wrap">{result.output}</div>}
+      </div>
+    )
+  }
+
   // 1. Terminal Command
   if (name === 'run_command') {
     return (

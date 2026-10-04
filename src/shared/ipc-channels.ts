@@ -39,6 +39,11 @@ export const IPC_CHANNELS = {
   UPDATE_CUSTOM_TOOLS: 'agent:update-custom-tools',
   GET_CUSTOM_TOOLS: 'agent:get-custom-tools',
 
+  // File Suggestion & AI Settings
+  GET_FILE_SUGGESTION_SETTINGS: 'agent:get-file-suggestion-settings',
+  SAVE_FILE_SUGGESTION_SETTINGS: 'agent:save-file-suggestion-settings',
+  GET_AI_PROVIDERS: 'agent:get-ai-providers',
+
   // Push Events (Main -> Renderer)
   EVENT_TIMELINE_UPDATE: 'agent-event:timeline-update',
   EVENT_SESSION_UPDATE: 'agent-event:session-update',
