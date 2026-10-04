@@ -126,7 +126,7 @@ The user is asking what file. Let me read mainGame.cpp.
     expect(ToolCallParser.hasToolCallAttempt('Just plain conversational response with no tools')).toBe(false)
   })
 
-  it('formats tool results into XML tags for next turn', () => {
+  it('formats tool results into Markdown format for next turn', () => {
     const result = {
       toolCallId: 'call_123',
       name: 'run_command',
@@ -135,12 +135,11 @@ The user is asking what file. Let me read mainGame.cpp.
       isError: false,
     }
 
-    const xml = ToolCallParser.formatToolResult(result)
-    expect(xml).toContain('<tool_result name="run_command">')
-    expect(xml).toContain('"Status": "Success"')
-    expect(xml).toContain('"ExitCode": 0')
-    expect(xml).toContain('"Output": "All 5 tests passed"')
-    expect(xml).toContain('</tool_result>')
+    const md = ToolCallParser.formatToolResult(result)
+    expect(md).toContain('### Tool Result: `run_command`')
+    expect(md).toContain('- **Status**: Success')
+    expect(md).toContain('- **Exit Code**: 0')
+    expect(md).toContain('All 5 tests passed')
   })
 
   it('safely extracts CodeContent containing unescaped quotes without truncating to 25 bytes', () => {
@@ -180,5 +179,65 @@ export function MembersSection() {
     // Should be filtered out to prevent 25-byte destructive writes
     expect(parsed.toolCalls.length).toBe(0)
     expect(ToolCallParser.hasToolCallAttempt(raw)).toBe(true)
+  })
+})
+
+describe('ToolCallParser JSON envelope', () => {
+  const call = '{"thought":"look","tool_call_name":"read_file","parameter":{"AbsolutePath":"src/a.ts"}}'
+
+  it('parses a plain envelope', () => {
+    const p = ToolCallParser.parse(call)
+    expect(p.thinking?.content).toBe('look')
+    expect(p.toolCalls).toHaveLength(1)
+    expect(p.toolCalls[0].name).toBe('read_file')
+    expect(p.toolCalls[0].arguments.AbsolutePath).toBe('src/a.ts')
+  })
+
+  it('tolerates fences and surrounding prose', () => {
+    const p = ToolCallParser.parse('Sure!\n```json\n' + call + '\n```\nDone.')
+    expect(p.toolCalls[0].name).toBe('read_file')
+  })
+
+  it('salvages unescaped quotes in code content', () => {
+    const raw = '{"thought":"write","tool_call_name":"write_file","parameter":{"TargetFile":"a.ts","CodeContent":"const s = "hi";\nexport {}"}}'
+    const p = ToolCallParser.parse(raw)
+    expect(p.toolCalls[0].name).toBe('write_file')
+    expect(p.toolCalls[0].arguments.TargetFile).toBe('a.ts')
+    expect(p.toolCalls[0].arguments.CodeContent).toContain('const s = "hi";')
+  })
+
+  it('finish ends the task with its summary', () => {
+    const p = ToolCallParser.parse('{"thought":"ok","tool_call_name":"finish","parameter":{"summary":"All done"}}')
+    expect(p.finished).toBe(true)
+    expect(p.cleanContent).toBe('All done')
+    expect(p.toolCalls).toHaveLength(0)
+  })
+
+  it('reports a format error when tool_call_name is not a string', () => {
+    const p = ToolCallParser.parse('{"thought":"x","tool_call_name":null,"parameter":{}}')
+    expect(p.formatError).toMatch(/finish/)
+    expect(p.toolCalls).toHaveLength(0)
+  })
+
+  it('parses batched tool calls in a JSON array', () => {
+    const batch = `[
+      {"thought":"Inspect dir","tool_call_name":"list_directory","parameter":{"DirectoryPath":"src"}},
+      {"thought":"Search App","tool_call_name":"grep_search","parameter":{"Query":"App"}}
+    ]`
+    const p = ToolCallParser.parse(batch)
+    expect(p.toolCalls).toHaveLength(2)
+    expect(p.toolCalls[0].name).toBe('list_directory')
+    expect(p.toolCalls[0].arguments.DirectoryPath).toBe('src')
+    expect(p.toolCalls[1].name).toBe('grep_search')
+    expect(p.toolCalls[1].arguments.Query).toBe('App')
+  })
+
+  it('parses multiple consecutive JSON tool envelopes', () => {
+    const multi = `{"thought":"one","tool_call_name":"list_directory","parameter":{"DirectoryPath":"."}}
+{"thought":"two","tool_call_name":"grep_search","parameter":{"Query":"main"}}`
+    const p = ToolCallParser.parse(multi)
+    expect(p.toolCalls).toHaveLength(2)
+    expect(p.toolCalls[0].name).toBe('list_directory')
+    expect(p.toolCalls[1].name).toBe('grep_search')
   })
 })

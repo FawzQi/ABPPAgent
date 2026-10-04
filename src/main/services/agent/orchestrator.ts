@@ -8,13 +8,25 @@ import { buildSystemPrompt } from './prompt'
 import { ProcessRunner } from '../tools/runner'
 import { FilesystemTools } from '../tools/filesystem'
 import { DirectoryExplorer } from '../tools/explorer'
-import { CustomToolsService } from '../tools/custom-tools'
+import { CustomToolsService, getExtendedEnv } from '../tools/custom-tools'
 import { generateCodebaseContext } from './codebase-context'
+import { validateCall, checkReread, fileInfo, forget, markKnown, typecheck } from './workspace-state'
 
 export interface OrchestratorCallbacks {
   onTimelineUpdate: (item: TimelineItem) => void
   onSessionUpdate: (session: Session) => void
   onTerminalChunk: (data: { toolCallId: string; chunk: string }) => void
+}
+
+const JSON_FORMAT_EXAMPLE = `{
+  "thought": "why I am doing this",
+  "tool_call_name": "read_file",
+  "parameter": { "AbsolutePath": "src/App.tsx" }
+}`
+
+/** Recovery prompt: restates the strict JSON turn format. Sent only when a turn is unusable. */
+function formatErrorPrompt(problem?: string): string {
+  return `# Tool Call Format Error\n${problem ?? 'Your previous message could not be parsed as a tool call.'}\n\nReply with a JSON object (or JSON array for batched tool calls):\n\`\`\`json\n${JSON_FORMAT_EXAMPLE}\n\`\`\`\nTo end the task: \`{"thought": "...", "tool_call_name": "finish", "parameter": {"summary": "..."}}\``
 }
 
 export class AgentDoubtDetector {
@@ -94,8 +106,8 @@ export class AgentIntentDetector {
 export class AgentOrchestrator {
   private static runner = new ProcessRunner()
   private static activeSessions = new Map<string, { abortController: AbortController }>()
-  private static pendingApprovals = new Map<string, { resolve: (approved: boolean) => void }>()
-  private static pendingUserInputs = new Map<string, { resolve: (answer: string) => void }>()
+  private static pendingApprovals = new Map<string, { sessionId: string; resolve: (approved: boolean) => void }>()
+  private static pendingUserInputs = new Map<string, { sessionId: string; resolve: (answer: string) => void }>()
   private static callbacks?: OrchestratorCallbacks
 
   static setCallbacks(callbacks: OrchestratorCallbacks): void {
@@ -136,13 +148,15 @@ export class AgentOrchestrator {
     let promptToSend = userText
 
     // Generate codebase context (GitNexus + BM25 + recency) for basis context
-    const codebaseContext = await generateCodebaseContext(session.workspacePath, userText)
+    const codebaseContext = await generateCodebaseContext(session.workspacePath, userText, (abs) => markKnown(sessionId, abs))
 
     if (isFirstTurn) {
       const sysPrompt = buildSystemPrompt(session.workspacePath, codebaseContext || undefined, session.customTools)
-      promptToSend = `${sysPrompt}\n\nUSER GOAL:\n${userText}`
+      promptToSend = `${sysPrompt}\n\n# User Goal\n${userText}`
     } else if (codebaseContext) {
-      promptToSend = `${codebaseContext}\n\nUSER GOAL:\n${userText}`
+      promptToSend = `${codebaseContext}\n\n# User Goal\n${userText}`
+    } else {
+      promptToSend = `# User Goal\n${userText}`
     }
 
     try {
@@ -166,6 +180,22 @@ export class AgentOrchestrator {
       this.callbacks?.onSessionUpdate(session)
     } finally {
       this.activeSessions.delete(sessionId)
+      if (abortController.signal.aborted) {
+        // runLoop exits via `break` on abort, so status must be reset here or the UI stays 'running'
+        session.status = 'idle'
+        session.updatedAt = Date.now()
+        const stopItem: TimelineItem = {
+          id: `msg_${Date.now()}_stopped`,
+          sessionId,
+          role: 'assistant',
+          content: '⏹ Stopped by user.',
+          timestamp: Date.now(),
+        }
+        SessionRepository.saveTimelineItem(stopItem)
+        this.callbacks?.onTimelineUpdate(stopItem)
+        SessionRepository.saveSession(session)
+        this.callbacks?.onSessionUpdate(session)
+      }
     }
   }
 
@@ -177,14 +207,27 @@ export class AgentOrchestrator {
     let recoveryAttempts = 0
     const recentCalls: { name: string; argsHash: string; output: string; isError?: boolean }[] = []
 
+    const cooldownTimerMs = session.delays?.cooldownTimerMs ?? session.delays?.sendPromptDelayMs ?? 3000
+    const sendDelayMs = session.delays?.sendDelayMs ?? session.delays?.interactionDelayMs ?? 1000
+    const toolExecutionDelayMs = session.delays?.toolExecutionDelayMs ?? 150
+
+    let cooldownExpiresAt = 0
+
     while (currentPrompt && !signal.aborted) {
-      // Pacing: 1 second cooldown for sending prompt to web chat llm
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      // Pacing: Cooldown timer check. Agent cannot send prompt if timer is still running.
+      const now = Date.now()
+      if (now < cooldownExpiresAt) {
+        const remaining = cooldownExpiresAt - now
+        await new Promise((resolve) => setTimeout(resolve, remaining))
+      }
       if (signal.aborted) break
 
       // 1. Deliver prompt to web chat and wait for scraped response
-      const sendResult = await sendToWebChat(session.targetId, currentPrompt)
+      const sendResult = await sendToWebChat(session.targetId, currentPrompt, sendDelayMs)
       if (signal.aborted) break
+
+      // Mark the cooldown timer start IMMEDIATELY upon receiving response from LLM chat
+      cooldownExpiresAt = Date.now() + cooldownTimerMs
 
       if (!sendResult.ok || !sendResult.text) {
         throw new Error(sendResult.error || 'Received empty response from web chat platform.')
@@ -205,6 +248,15 @@ export class AgentOrchestrator {
       SessionRepository.saveTimelineItem(assistantItem)
       this.callbacks?.onTimelineUpdate(assistantItem)
 
+      // Model declared completion via {"tool_call_name": "finish"}
+      if (parsed.finished) {
+        session.status = 'idle'
+        session.updatedAt = Date.now()
+        SessionRepository.saveSession(session)
+        this.callbacks?.onSessionUpdate(session)
+        break
+      }
+
       // 3. Autonomous recovery checks (Agent Doubt / Helplessness or Tool Format Errors)
       if (parsed.toolCalls.length === 0) {
         // A. Agent Doubt / Helplessness Check: Detect when agent falsely believes tools were removed
@@ -220,12 +272,12 @@ export class AgentOrchestrator {
           SessionRepository.saveTimelineItem(alertItem)
           this.callbacks?.onTimelineUpdate(alertItem)
 
-          currentPrompt = `<system_alert>\nCRITICAL ENVIRONMENT RE-ANCHOR:\nAll local workspace tools (read_file, read_file_full, write_file, replace_file_content, run_command, list_directory, git_*) are 100% ACTIVE and READY in your current session.\nYou have full autonomous access to the workspace shell and filesystem. Do NOT ask the user to run terminal commands (such as wc, head, or git) for you.\nIf a previous file write was rejected or had an issue, you can inspect it with read_file_full or rewrite/restore it directly right now using your tools.\nPlease resume your autonomous task immediately using the appropriate tool call.\n</system_alert>`
+          currentPrompt = `# System Notice: Workspace Environment Active\nAll local workspace tools (read_file, read_file_full, write_file, replace_file_content, run_command, list_directory, git_*) are 100% ACTIVE and READY in your current session.\nYou have full autonomous access to the workspace shell and filesystem. Do NOT ask the user to run terminal commands for you.\nPlease resume your autonomous task immediately using the appropriate tool call.`
           continue
         }
 
         // B. Tool Call Formatting Error Check
-        if (ToolCallParser.hasToolCallAttempt(sendResult.text) && recoveryAttempts < 3) {
+        if ((parsed.formatError || ToolCallParser.hasToolCallAttempt(sendResult.text)) && recoveryAttempts < 3) {
           recoveryAttempts++
           const nudgeItem: TimelineItem = {
             id: `msg_${Date.now()}_nudge`,
@@ -237,7 +289,7 @@ export class AgentOrchestrator {
           SessionRepository.saveTimelineItem(nudgeItem)
           this.callbacks?.onTimelineUpdate(nudgeItem)
 
-          currentPrompt = `<format_error>\nYour previous message attempted to invoke a tool but used an invalid or unsupported format (such as DSML).\nYou MUST format all tool calls strictly using standard XML with a valid JSON argument object:\n<tool_call name="tool_name">\n{\n  "parameter_name": "parameter_value"\n}\n</tool_call>\nDo NOT output DSML tokens or parameters.\n</format_error>`
+          currentPrompt = formatErrorPrompt(parsed.formatError)
           continue
         }
 
@@ -254,7 +306,7 @@ export class AgentOrchestrator {
           SessionRepository.saveTimelineItem(intentItem)
           this.callbacks?.onTimelineUpdate(intentItem)
 
-          currentPrompt = `<system_alert>\nYour response was vague and did not invoke any tools or provide a finished result.\nYou MUST follow the strict output format:\n1. Enclose your plan/reasoning in <thought>...</thought>.\n2. Immediately emit your tool call in standard XML:\n<tool_call name="tool_name">\n{\n  "parameter_name": "parameter_value"\n}\n</tool_call>\nDo NOT output conversational commentary without a tool call. Please emit your tool call now.\n</system_alert>`
+          currentPrompt = formatErrorPrompt('Your response was vague: it invoked no tool and did not finish the task.')
           continue
         }
 
@@ -286,22 +338,40 @@ export class AgentOrchestrator {
       // Reset recovery attempts on successful tool parse
       recoveryAttempts = 0
 
-      // 4. Pacing: Wait 1 second after scraping before running tools
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      if (signal.aborted) break
-
-      // Execute each tool call sequentially with 500ms delay between calls
+      // Execute each tool call sequentially with delay between calls
       const toolResults: ToolResult[] = []
       let fullFileReadCount = 0
+      let wroteFile = false
 
       for (let i = 0; i < parsed.toolCalls.length; i++) {
         if (signal.aborted) break
         if (i > 0) {
-          // Pacing: Wait 500ms between sequential tool executions
-          await new Promise((resolve) => setTimeout(resolve, 500))
+          // Pacing: Wait between sequential tool executions (default 150ms for stability)
+          await new Promise((resolve) => setTimeout(resolve, toolExecutionDelayMs))
           if (signal.aborted) break
         }
         const call = parsed.toolCalls[i]
+
+        // Context protection: Do not allow read_file_full or copy_file_to_chat to be batched with other tools
+        if (call.name === 'read_file_full' || call.name === 'copy_file_to_chat') {
+          fullFileReadCount++
+          if (parsed.toolCalls.length > 1 || fullFileReadCount > 1) {
+            toolResults.push({
+              toolCallId: call.id,
+              name: call.name,
+              output: `Error: '${call.name}' cannot be batched with other tool calls. Run ${call.name} individually in its own turn to protect the context window.`,
+              isError: true,
+            })
+            continue
+          }
+        }
+
+        // Tool gate: schema + path validation before anything touches the filesystem
+        const invalid = validateCall(call, session.workspacePath)
+        if (invalid) {
+          toolResults.push({ toolCallId: call.id, name: call.name, output: invalid, isError: true })
+          continue
+        }
         const argsHash = JSON.stringify(call.arguments)
 
         // Repetition Guard: Detect identical calls that failed or yielded no matches in previous turns
@@ -326,21 +396,42 @@ export class AgentOrchestrator {
           continue
         }
 
-        // Context protection: Do not stack multiple heavy full-file reads in one turn
-        if (call.name === 'read_file_full' || call.name === 'copy_file_to_chat') {
-          fullFileReadCount++
-          if (fullFileReadCount > 1) {
+        // Reread guard: first redundant full reread is allowed with a warning, further ones are blocked
+        const target: string | undefined = call.arguments.AbsolutePath ?? call.arguments.TargetFile
+        const isWrite = call.name === 'write_file' || call.name === 'replace_file_content'
+        const isFullRead =
+          call.name === 'read_file_full' ||
+          call.name === 'copy_file_to_chat' ||
+          (call.name === 'read_file' && !call.arguments.StartLine && !call.arguments.EndLine)
+        let rereadWarn = ''
+        if (isFullRead && target) {
+          const verdict = checkReread(session.id, target)
+          if (verdict === 'block') {
             toolResults.push({
               toolCallId: call.id,
               name: call.name,
-              output: `Notice: To protect the web chat context window, full file reads cannot be stacked in a single turn. Please inspect this file in your next turn.`,
-              isError: false,
+              output: `Error: ${target} is unchanged since you last read it; its full content is already in your context. Use it, or edit the file directly.`,
+              isError: true,
             })
             continue
+          }
+          if (verdict === 'warn') {
+            rereadWarn = `\n[warning: this file was unchanged since you last read it. Do not reread files you already have; further rereads of unchanged files will be blocked.]`
           }
         }
 
         const result = await this.processToolCall(session, call, signal)
+        // Failed search-block edit: the model legitimately needs to look at the file again
+        if (call.name === 'replace_file_content' && result.isError && target) forget(session.id, target)
+        if (!result.isError && target && (isFullRead || isWrite || call.name === 'read_file')) {
+          if (isWrite) {
+            forget(session.id, target)
+            wroteFile = true
+          }
+          const info = fileInfo(target)
+          if (info) result.output += `\n[sha256=${info.sha} bytes=${info.bytes}]`
+        }
+        result.output += rereadWarn
         toolResults.push(result)
         recentCalls.push({
           name: call.name,
@@ -349,17 +440,25 @@ export class AgentOrchestrator {
           isError: result.isError,
         })
         if (recentCalls.length > 20) recentCalls.shift()
+
+        // Pacing: Brief stability pause after tool execution
+        await new Promise((resolve) => setTimeout(resolve, toolExecutionDelayMs))
+        if (signal.aborted) break
       }
 
       if (signal.aborted) break
 
-      // Pacing: 1 second cooldown after tools finish execution before sending the next turn to web chat
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      // Opt-in post-write validation: append typecheck result to the last tool result
+      if (wroteFile && session.customTools?.enablePostWriteCheck && toolResults.length) {
+        const report = await typecheck(session.workspacePath, getExtendedEnv())
+        if (report) toolResults[toolResults.length - 1].output += `\n${report}`
+      }
+
       if (signal.aborted) break
 
-      // 5. Format tool results into XML for subsequent turn
-      const nextTurnXml = toolResults.map((r) => ToolCallParser.formatToolResult(r)).join('\n\n')
-      currentPrompt = nextTurnXml
+      // 5. Format tool results into Markdown for subsequent turn
+      const nextTurnMarkdown = toolResults.map((r) => ToolCallParser.formatToolResult(r)).join('\n\n')
+      currentPrompt = nextTurnMarkdown
     }
   }
 
@@ -420,7 +519,7 @@ export class AgentOrchestrator {
       this.callbacks?.onSessionUpdate(session)
 
       const approved = await new Promise<boolean>((resolve) => {
-        this.pendingApprovals.set(call.id, { resolve })
+        this.pendingApprovals.set(call.id, { sessionId: session.id, resolve })
       })
 
       this.pendingApprovals.delete(call.id)
@@ -536,7 +635,7 @@ export class AgentOrchestrator {
       result = await CustomToolsService.grepSearch(call.id, session.workspacePath, call.arguments.Query || '', call.arguments.Path)
     } else if (call.name === 'ask_user') {
       const answer = await new Promise<string>((resolve) => {
-        this.pendingUserInputs.set(call.id, { resolve })
+        this.pendingUserInputs.set(call.id, { sessionId: session.id, resolve })
       })
       this.pendingUserInputs.delete(call.id)
       result = {
@@ -585,5 +684,8 @@ export class AgentOrchestrator {
       session.abortController.abort()
       this.activeSessions.delete(sessionId)
     }
+    // Unblock a loop waiting on approval / ask_user so it can observe the abort
+    for (const [id, p] of this.pendingApprovals) if (p.sessionId === sessionId) p.resolve(false)
+    for (const [id, p] of this.pendingUserInputs) if (p.sessionId === sessionId) p.resolve('')
   }
 }

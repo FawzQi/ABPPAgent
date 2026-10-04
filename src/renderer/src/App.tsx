@@ -97,14 +97,14 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {/* Custom Tools Menu Button */}
+          {/* Custom Tools & Pacing Modal */}
           <button
             onClick={openToolsModal}
             className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-slate-100 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 px-2.5 py-1 rounded transition cursor-pointer"
-            title="Configure Custom Tools (GitNexus, Grep, Whole-file, CLI commands)"
+            title="Configure Custom Tools, Capabilities & Execution Delays"
           >
             <Wrench size={13} className="text-indigo-400" />
-            <span>Tools</span>
+            <span>Tools & Delays</span>
           </button>
 
           {/* YOLO / Safety Mode Toggle */}

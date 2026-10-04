@@ -93,6 +93,7 @@ export interface CustomToolsConfig {
   enableFullFile: boolean
   enableRunCommand: boolean
   enableFileMutation: boolean
+  enablePostWriteCheck?: boolean
 }
 
 export const DEFAULT_CUSTOM_TOOLS_CONFIG: CustomToolsConfig = {
@@ -125,6 +126,22 @@ export interface TimelineItem {
   timestamp: number
 }
 
+export interface AgentDelaysConfig {
+  cooldownTimerMs?: number // Minimum timer after receiving LLM response before sending next prompt (default: 3000)
+  sendDelayMs?: number // Delay after typing into input before clicking send (default: 1000, with 50-150ms random jitter)
+  toolExecutionDelayMs?: number // Delay between sequential tool executions (default: 150)
+  sendPromptDelayMs?: number // Backward compatibility alias
+  interactionDelayMs?: number // Backward compatibility alias
+}
+
+export const DEFAULT_AGENT_DELAYS_CONFIG: AgentDelaysConfig = {
+  cooldownTimerMs: 3000,
+  sendDelayMs: 1000,
+  toolExecutionDelayMs: 150,
+  sendPromptDelayMs: 3000,
+  interactionDelayMs: 1000,
+}
+
 export interface Session {
   id: string
   title: string
@@ -135,6 +152,7 @@ export interface Session {
   autoApprove: boolean
   status: 'idle' | 'running' | 'paused' | 'error'
   customTools?: CustomToolsConfig
+  delays?: AgentDelaysConfig
 }
 
 export interface WorkspaceFileChange {

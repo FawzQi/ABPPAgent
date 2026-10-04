@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { clipboard } from 'electron'
 import type { ToolResult } from '@shared/types'
 
-function getExtendedEnv(): NodeJS.ProcessEnv {
+export function getExtendedEnv(): NodeJS.ProcessEnv {
   const home = process.env.HOME || ''
   const extraPaths = [
     path.join(home, '.nvm/versions/node/v24.15.0/bin'),

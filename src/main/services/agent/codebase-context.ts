@@ -341,29 +341,49 @@ export async function suggestRelevantFiles(
   return sortedCandidates.slice(0, maxFiles)
 }
 
+const FULL_FILE_MAX = 16_000
+const FULL_CONTEXT_BUDGET = 24_000
+
 /**
  * Generate formatted <codebase_context> string containing tree and file previews.
  */
-export async function generateCodebaseContext(workspacePath: string, instruction: string): Promise<string> {
+export async function generateCodebaseContext(
+  workspacePath: string,
+  instruction: string,
+  markKnown?: (absPath: string) => boolean,
+): Promise<string> {
   try {
     const suggestedFiles = await suggestRelevantFiles(workspacePath, instruction, 5)
     if (suggestedFiles.length === 0) return ''
 
     const tree = buildTreeLines(suggestedFiles)
     const filePreviews: string[] = []
+    let budget = FULL_CONTEXT_BUDGET
 
     for (const relPath of suggestedFiles.slice(0, 4)) {
       try {
         const fullPath = path.join(workspacePath, relPath)
-        if (fs.existsSync(fullPath)) {
-          const content = fs.readFileSync(fullPath, 'utf8')
-          const lines = content.split(/\r?\n/).slice(0, 40)
-          filePreviews.push(`--- FILE: ${relPath} (first ${lines.length} lines) ---\n${lines.join('\n')}`)
+        if (!fs.existsSync(fullPath)) continue
+        const content = fs.readFileSync(fullPath, 'utf8')
+        const allLines = content.split(/\r?\n/)
+        if (content.length <= FULL_FILE_MAX && content.length <= budget) {
+          budget -= content.length
+          // markKnown records the file for the session; true => model already has this exact content
+          if (markKnown?.(fullPath)) {
+            filePreviews.push(`--- FILE: ${relPath} | completeness=FULL | unchanged, already in your context ---`)
+          } else {
+            filePreviews.push(`--- FILE: ${relPath} | completeness=FULL | lines=1-${allLines.length} ---\n${content}`)
+          }
+        } else {
+          const lines = allLines.slice(0, 40)
+          filePreviews.push(
+            `--- FILE: ${relPath} | completeness=PARTIAL | lines=1-${lines.length} of ${allLines.length} ---\n${lines.join('\n')}`,
+          )
         }
       } catch {}
     }
 
-    return `<codebase_context>\nRELEVANT WORKSPACE FILES (Identified via GitNexus + BM25):\n${tree}\n\n${filePreviews.join('\n\n')}\n</codebase_context>`
+    return `# Relevant Workspace Files (Codebase Context)\n\n## Workspace File Tree\n\`\`\`\n${tree}\n\`\`\`\n\n## File Previews\n${filePreviews.join('\n\n')}`
   } catch (err: any) {
     return ''
   }

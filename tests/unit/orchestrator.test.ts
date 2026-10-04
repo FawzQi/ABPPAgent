@@ -10,7 +10,7 @@ describe('Agent Orchestration Flow', () => {
     expect(prompt).toContain('run_command')
     expect(prompt).toContain('read_file')
     expect(prompt).toContain('write_file')
-    expect(prompt).toContain('<tool_call name=')
+    expect(prompt).toContain('"tool_call_name"')
   })
 
   it('correctly simulates multi-turn tool cycle', () => {
@@ -40,9 +40,9 @@ I will read the config.json file.
       isError: false,
     }
 
-    const nextPromptXml = ToolCallParser.formatToolResult(toolResult1)
-    expect(nextPromptXml).toContain('<tool_result name="read_file">')
-    expect(nextPromptXml).toContain('port')
+    const nextPromptMarkdown = ToolCallParser.formatToolResult(toolResult1)
+    expect(nextPromptMarkdown).toContain('### Tool Result: `read_file`')
+    expect(nextPromptMarkdown).toContain('port')
 
     // Turn 2 Assistant Response (final answer, no tools)
     const turn2AssistantRaw = `<thought>
@@ -71,11 +71,10 @@ The configuration uses port 3000 and is complete.`
     expect(AgentDoubtDetector.hasDoubtOrHelplessness(normalResponse)).toBe(false)
   })
 
-  it('includes selective tool batching and stacking rules in system prompt', () => {
+  it('specifies tool batching and single read_file_full rule in system prompt', () => {
     const prompt = buildSystemPrompt('/test/workspace')
-    expect(prompt).toContain('TOOL BATCHING & STACKING RULES')
-    expect(prompt).toContain('NEVER stack/batch `read_file_full`')
-    expect(prompt).toContain('Always read files individually, one file per turn')
+    expect(prompt).toContain('Batching rule: You MAY batch multiple tool calls in a single turn')
+    expect(prompt).toContain('NEVER batch or stack `read_file_full`')
   })
 
   it('successfully parses multiple stacked tool calls in a single turn', () => {
@@ -145,13 +144,14 @@ I will list the directory and search for usages in parallel.
     expect(AgentIntentDetector.isUnfulfilledAction(completion2)).toBe(false)
   })
 
-  it('enforces strict protocol with few-shot example and repetition prevention in system prompt', () => {
+  it('enforces strict JSON protocol, reread policy and finish in system prompt', () => {
     const prompt = buildSystemPrompt('/test/workspace', 'PROJECT CONTEXT INFO')
-    expect(prompt).toContain('CRITICAL INTERACTION PROTOCOL')
-    expect(prompt).toContain('DO NOT USE PROPRIETARY TOOL-CALLING SYNTAX')
-    expect(prompt).toContain('REPETITION & DUPLICATE CALL PREVENTION')
-    expect(prompt).toContain('NO CONVERSATIONAL NARRATION WITHOUT TOOL CALLS')
-    expect(prompt).toContain('Example turn:')
+    expect(prompt).toContain('Strict Output Format')
+    expect(prompt).toContain('no XML, no proprietary tokens')
+    expect(prompt).toContain('Never repeat an identical tool call')
+    expect(prompt).toContain('Context-First Policy')
+    expect(prompt).toContain('"tool_call_name": "finish"')
+    expect(prompt).toContain('For a single tool call:')
     expect(prompt).toContain('PROJECT CONTEXT INFO')
   })
 })

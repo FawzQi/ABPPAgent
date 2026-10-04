@@ -52,8 +52,8 @@ describe('codebase-context', () => {
   it('generates codebase context for current workspace without throwing', async () => {
     const workspaceRoot = path.resolve('.')
     const context = await generateCodebaseContext(workspaceRoot, 'find agent orchestrator and parser')
-    expect(context).toContain('<codebase_context>')
-    expect(context).toContain('RELEVANT WORKSPACE FILES')
+    expect(context).toContain('# Relevant Workspace Files (Codebase Context)')
+    expect(context).toContain('## Workspace File Tree')
     expect(context).toContain('orchestrator.ts')
   })
 })

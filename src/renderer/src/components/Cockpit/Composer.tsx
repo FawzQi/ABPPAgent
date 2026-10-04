@@ -1,13 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Send, Square, FileCode, Sparkles } from 'lucide-react'
+import { Send, Square, FileCode, Sparkles, ChevronDown, Check } from 'lucide-react'
 import { useSessionStore } from '../../stores/session-store'
+import { useTargetStore } from '../../stores/target-store'
 
 export const Composer: React.FC = () => {
   const [text, setText] = useState('')
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { activeSession, sendUserMessage, abortAgent } = useSessionStore()
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const { activeSession, setTargetId, sendUserMessage, abortAgent } = useSessionStore()
+  const { targets } = useTargetStore()
 
   const isRunning = activeSession?.status === 'running'
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setModelDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const handleSubmit = async () => {
     if (!text.trim() || isRunning) return
@@ -39,10 +54,53 @@ export const Composer: React.FC = () => {
     textareaRef.current?.focus()
   }
 
+  const currentTarget = targets.find((t) => t.id === activeSession?.targetId) || targets[0]
+
   return (
     <div className="border-t border-slate-800 bg-slate-900/60 p-3">
-      {/* Quick Action Pills */}
-      <div className="flex items-center gap-1.5 mb-2 overflow-x-auto text-[11px]">
+      {/* Quick Action Pills & Model Selector */}
+      <div className="flex items-center gap-2 mb-2 overflow-x-visible text-[11px]">
+        {/* Model Selector Dropdown */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 font-medium px-2 py-0.5 rounded cursor-pointer transition border border-indigo-500/40 select-none"
+            title="Switch Web Chat LLM (ChatGPT, Gemini, DeepSeek)"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span>{currentTarget?.label || 'DeepSeek'}</span>
+            <ChevronDown size={11} className="text-slate-400" />
+          </button>
+
+          {modelDropdownOpen && (
+            <div className="absolute bottom-full left-0 mb-1.5 w-44 bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-1 z-50 space-y-0.5 animate-in fade-in duration-100">
+              <div className="text-[10px] font-semibold text-slate-400 px-2 py-1 uppercase tracking-wider">
+                Select Model
+              </div>
+              {targets.map((t) => {
+                const isSelected = activeSession?.targetId === t.id
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      setTargetId(t.id)
+                      setModelDropdownOpen(false)
+                    }}
+                    className={`w-full flex items-center justify-between px-2 py-1 rounded text-left text-xs transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-indigo-600/25 text-indigo-300 font-semibold border border-indigo-500/30'
+                        : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    <span>{t.label}</span>
+                    {isSelected && <Check size={11} className="text-indigo-400" />}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
         <button
           onClick={() => insertSnippet('/plan')}
           className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded cursor-pointer transition border border-slate-700/50"
@@ -57,7 +115,7 @@ export const Composer: React.FC = () => {
           <FileCode size={11} className="text-indigo-400" />
           <span>@file</span>
         </button>
-        <span className="text-slate-600 text-[10px] ml-auto">
+        <span className="text-slate-500 text-[10px] ml-auto">
           Enter to send • Shift+Enter for newline
         </span>
       </div>

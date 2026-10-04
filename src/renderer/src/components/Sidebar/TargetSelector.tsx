@@ -1,16 +1,16 @@
 import React from 'react'
-import { ExternalLink, Zap } from 'lucide-react'
+import { ExternalLink, Zap, Check } from 'lucide-react'
 import { useTargetStore } from '../../stores/target-store'
 import { useSessionStore } from '../../stores/session-store'
 import type { WebChatTargetId } from '@shared/types'
 
 export const TargetSelector: React.FC = () => {
   const { targets, openTargetWindow } = useTargetStore()
-  const { activeSession } = useSessionStore()
+  const { activeSession, setTargetId } = useSessionStore()
 
   const handleSelectTarget = async (id: WebChatTargetId) => {
-    if (activeSession && window.agentApi) {
-      await window.agentApi.updateSessionSettings(activeSession.id, { targetId: id })
+    if (activeSession) {
+      await setTargetId(id)
     }
   }
 
@@ -41,23 +41,28 @@ export const TargetSelector: React.FC = () => {
             <div
               key={target.id}
               onClick={() => handleSelectTarget(target.id)}
-              className={`flex items-center justify-between px-2.5 py-1.5 rounded text-xs cursor-pointer transition ${
+              className={`flex items-center justify-between px-2.5 py-1.5 rounded text-xs cursor-pointer transition select-none ${
                 isSelected
-                  ? 'bg-slate-800 border border-slate-700 text-white font-medium'
-                  : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200'
+                  ? 'bg-slate-800 border border-slate-700 text-white font-medium shadow-xs'
+                  : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 border border-transparent'
               }`}
             >
               <div className="flex items-center gap-2">
                 {getStatusBadge(target.status ?? 'idle')}
-                <span>{target.label}</span>
+                <span className={isSelected ? 'text-indigo-300 font-semibold' : ''}>{target.label}</span>
+                {isSelected && (
+                  <span className="flex items-center gap-0.5 text-[10px] bg-indigo-950/80 text-indigo-400 border border-indigo-800/60 px-1.5 py-0.2 rounded font-mono">
+                    <Check size={10} /> Active
+                  </span>
+                )}
               </div>
               <button
                 onClick={(e) => {
                   e.stopPropagation()
                   openTargetWindow(target.id)
                 }}
-                className="text-slate-500 hover:text-indigo-400 p-1 rounded transition"
-                title={`Open ${target.label} browser tab`}
+                className="text-slate-500 hover:text-indigo-400 p-1 rounded transition cursor-pointer"
+                title={`Open / Log in to ${target.label} tab`}
               >
                 <ExternalLink size={12} />
               </button>

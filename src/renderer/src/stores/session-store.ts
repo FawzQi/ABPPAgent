@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Session, TimelineItem, WebChatTargetId } from '@shared/types'
+import type { Session, TimelineItem, WebChatTargetId, AgentDelaysConfig } from '@shared/types'
 
 interface SessionStore {
   sessions: Session[]
@@ -17,6 +17,8 @@ interface SessionStore {
   createSession: (targetId?: WebChatTargetId) => Promise<Session>
   selectSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
+  setTargetId: (targetId: WebChatTargetId) => Promise<void>
+  updateDelays: (delays: AgentDelaysConfig) => Promise<void>
   toggleAutoApprove: () => Promise<void>
 
   sendUserMessage: (text: string) => Promise<void>
@@ -59,12 +61,29 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     window.agentApi.onTerminalChunk(({ toolCallId, chunk }) => get().handleTerminalChunk(toolCallId, chunk))
   },
 
-  createSession: async (targetId = 'deepseek') => {
+  createSession: async (targetId) => {
     if (!window.agentApi) throw new Error('agentApi not available')
-    const session = await window.agentApi.createSession(targetId, get().workspacePath)
+    const effectiveTargetId = targetId || get().activeSession?.targetId || 'deepseek'
+    const session = await window.agentApi.createSession(effectiveTargetId, get().workspacePath)
     set((state) => ({ sessions: [session, ...state.sessions] }))
     await get().selectSession(session.id)
     return session
+  },
+
+  setTargetId: async (targetId: WebChatTargetId) => {
+    const { activeSession, sessions } = get()
+    if (!activeSession || !window.agentApi) return
+    const updated = await window.agentApi.updateSessionSettings(activeSession.id, { targetId })
+    const updatedSessions = sessions.map((s) => (s.id === updated.id ? updated : s))
+    set({ activeSession: updated, sessions: updatedSessions })
+  },
+
+  updateDelays: async (delays: AgentDelaysConfig) => {
+    const { activeSession, sessions } = get()
+    if (!activeSession || !window.agentApi) return
+    const updated = await window.agentApi.updateSessionSettings(activeSession.id, { delays })
+    const updatedSessions = sessions.map((s) => (s.id === updated.id ? updated : s))
+    set({ activeSession: updated, sessions: updatedSessions })
   },
 
   selectSession: async (sessionId: string) => {
@@ -93,11 +112,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   toggleAutoApprove: async () => {
-    const { activeSession } = get()
+    const { activeSession, sessions } = get()
     if (!activeSession || !window.agentApi) return
     const newAuto = !activeSession.autoApprove
     const updated = await window.agentApi.updateSessionSettings(activeSession.id, { autoApprove: newAuto })
-    set({ activeSession: updated })
+    const updatedSessions = sessions.map((s) => (s.id === updated.id ? updated : s))
+    set({ activeSession: updated, sessions: updatedSessions })
   },
 
   sendUserMessage: async (text: string) => {
@@ -121,6 +141,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   abortAgent: async () => {
     const { activeSession } = get()
     if (!activeSession || !window.agentApi) return
+    set({ activeSession: { ...activeSession, status: 'idle' } })
     await window.agentApi.abortAgent(activeSession.id)
   },
 

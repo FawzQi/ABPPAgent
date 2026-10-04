@@ -4,6 +4,10 @@ export interface ParsedAssistantResponse {
   cleanContent: string
   thinking?: ThinkingBlock
   toolCalls: ToolCall[]
+  /** Model sent {"tool_call_name":"finish"}: task is complete, `cleanContent` holds the summary. */
+  finished?: boolean
+  /** JSON envelope was found but invalid; message is meant for the recovery prompt. */
+  formatError?: string
 }
 
 function robustParseJsonArgs(jsonStr: string): Record<string, any> {
@@ -158,6 +162,176 @@ function extractDsmlToolCalls(text: string): ToolCall[] {
 }
 
 
+function scanBalancedObject(text: string, start: number): string | null {
+  let depth = 0
+  let inStr = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inStr) {
+      if (ch === '\\') i++
+      else if (ch === '"') inStr = false
+    } else if (ch === '"') inStr = true
+    else if (ch === '{') depth++
+    else if (ch === '}' && --depth === 0) return text.slice(start, i + 1)
+  }
+  return null
+}
+
+function scanBalancedArray(text: string, start: number): string | null {
+  let depth = 0
+  let inStr = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inStr) {
+      if (ch === '\\') i++
+      else if (ch === '"') inStr = false
+    } else if (ch === '"') inStr = true
+    else if (ch === '[') depth++
+    else if (ch === ']' && --depth === 0) return text.slice(start, i + 1)
+  }
+  return null
+}
+
+interface Envelope {
+  thought?: string
+  name: unknown
+  args: Record<string, any>
+  raw: string
+}
+
+/**
+ * Parse one or more JSON tool envelopes (arrays or multiple objects).
+ */
+function parseEnvelopes(text: string): { envelopes: Envelope[]; formatError?: string; finished?: boolean; summary?: string } {
+  const envelopes: Envelope[] = []
+
+  // 1. Check for JSON array: [ { ... }, { ... } ]
+  const firstBracket = text.indexOf('[')
+  if (firstBracket !== -1 && /"tool_call_name"/.test(text)) {
+    const rawArr = scanBalancedArray(text, firstBracket)
+    if (rawArr) {
+      try {
+        const parsed = JSON.parse(rawArr)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          for (const item of parsed) {
+            if (item && typeof item === 'object') {
+              if (item.tool_call_name === 'finish') {
+                return {
+                  envelopes: [],
+                  finished: true,
+                  summary: item.parameter?.summary ?? item.parameter?.message ?? item.thought ?? '',
+                }
+              }
+              const args = item.parameter && typeof item.parameter === 'object' ? item.parameter : {}
+              envelopes.push({
+                thought: typeof item.thought === 'string' ? item.thought : undefined,
+                name: item.tool_call_name,
+                args,
+                raw: rawArr,
+              })
+            }
+          }
+          if (envelopes.length > 0) {
+            return { envelopes }
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // 2. Scan all balanced { ... } objects that have "tool_call_name"
+  let searchPos = 0
+  while (searchPos < text.length) {
+    const slice = text.slice(searchPos)
+    const match = /\{\s*"(?:thought|tool_call_name)"/.exec(slice)
+    if (!match) break
+
+    const openIdx = searchPos + match.index
+    const rawObj = scanBalancedObject(text, openIdx)
+    if (!rawObj) {
+      searchPos = openIdx + 1
+      continue
+    }
+
+    if (/"tool_call_name"/.test(rawObj)) {
+      try {
+        const obj = JSON.parse(rawObj)
+        if (obj && typeof obj === 'object') {
+          // Check for "tool_calls" array inside object
+          if (Array.isArray(obj.tool_calls) && obj.tool_calls.length > 0) {
+            for (const c of obj.tool_calls) {
+              envelopes.push({
+                thought: typeof obj.thought === 'string' ? obj.thought : undefined,
+                name: c.tool_call_name,
+                args: c.parameter && typeof c.parameter === 'object' ? c.parameter : {},
+                raw: rawObj,
+              })
+            }
+          } else {
+            if (obj.tool_call_name === 'finish') {
+              return {
+                envelopes: [],
+                finished: true,
+                summary: obj.parameter?.summary ?? obj.parameter?.message ?? obj.thought ?? '',
+              }
+            }
+            envelopes.push({
+              thought: typeof obj.thought === 'string' ? obj.thought : undefined,
+              name: obj.tool_call_name,
+              args: obj.parameter && typeof obj.parameter === 'object' ? obj.parameter : {},
+              raw: rawObj,
+            })
+          }
+        }
+      } catch {
+        // Salvage single object with unescaped quotes in CodeContent
+        const nameMatch = /"tool_call_name"\s*:\s*("([^"]+)"|null)/.exec(rawObj)
+        const thoughtMatch = /"thought"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(rawObj)
+        let thought: string | undefined
+        if (thoughtMatch) {
+          try {
+            thought = JSON.parse(`"${thoughtMatch[1]}"`)
+          } catch {
+            thought = thoughtMatch[1]
+          }
+        }
+        const paramMatch = /"parameter"\s*:\s*\{/.exec(rawObj)
+        const args = paramMatch
+          ? extractArgsFromBody(rawObj.slice(paramMatch.index + paramMatch[0].length - 1, rawObj.lastIndexOf('}')))
+          : {}
+        if (nameMatch?.[2] === 'finish') {
+          return {
+            envelopes: [],
+            finished: true,
+            summary: args.summary ?? args.message ?? thought ?? '',
+          }
+        }
+        envelopes.push({
+          thought,
+          name: nameMatch?.[2] ?? null,
+          args,
+          raw: rawObj,
+        })
+      }
+    }
+
+    searchPos = openIdx + rawObj.length
+  }
+
+  if (envelopes.length > 0) {
+    const invalid = envelopes.find((e) => typeof e.name !== 'string' || !e.name.trim())
+    if (invalid && envelopes.length === 1) {
+      return {
+        envelopes: [],
+        formatError: '"tool_call_name" must be a tool name string. To end the task use "tool_call_name": "finish" with parameter {"summary": "..."}.',
+      }
+    }
+    return { envelopes: envelopes.filter((e) => typeof e.name === 'string' && e.name.trim()) }
+  }
+
+  return { envelopes: [] }
+}
+
 /**
  * Universal XML parser for extracting <thought> and <tool_call> tags.
  */
@@ -167,7 +341,7 @@ export class ToolCallParser {
    * even if formatted incorrectly, unclosed, or in legacy DSML.
    */
   static hasToolCallAttempt(rawText: string): boolean {
-    return /<tool_call\b|<[|｜]{2}DSML|name=["'](?:run_command|read_file|write_file|replace_file_content|list_directory|ask_user|grep_search|gitnexus_)/i.test(
+    return /"tool_call_name"|<tool_call\b|<[|｜]{2}DSML|name=["'](?:run_command|read_file|write_file|replace_file_content|list_directory|ask_user|grep_search|gitnexus_)/i.test(
       rawText,
     )
   }
@@ -179,6 +353,46 @@ export class ToolCallParser {
     let cleanText = rawText
     let thinking: ThinkingBlock | undefined
     const toolCalls: ToolCall[] = []
+
+    // 0. Primary format: JSON envelopes (single or batched array/multi-object)
+    const jsonParsed = parseEnvelopes(rawText)
+    if (jsonParsed.finished) {
+      return {
+        cleanContent: String(jsonParsed.summary ?? '').trim(),
+        thinking,
+        toolCalls: [],
+        finished: true,
+      }
+    }
+    if (jsonParsed.formatError) {
+      return {
+        cleanContent: '',
+        thinking,
+        toolCalls: [],
+        formatError: jsonParsed.formatError,
+      }
+    }
+
+    if (jsonParsed.envelopes.length > 0) {
+      const firstThought = jsonParsed.envelopes.find((e) => e.thought)?.thought
+      if (firstThought) {
+        thinking = { content: firstThought.trim() }
+      }
+      for (let i = 0; i < jsonParsed.envelopes.length; i++) {
+        const env = jsonParsed.envelopes[i]
+        toolCalls.push({
+          id: `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${i}`,
+          name: (env.name as string).trim(),
+          arguments: env.args,
+          rawXml: env.raw,
+        })
+      }
+      return {
+        cleanContent: '',
+        thinking,
+        toolCalls,
+      }
+    }
 
     // 1. Extract thinking block: <thought>...</thought> or <thinking>...</thinking>
     const thoughtRegex = /<(?:thought|thinking)>([\s\S]*?)<\/(?:thought|thinking)>/i
@@ -268,14 +482,11 @@ export class ToolCallParser {
   }
 
   /**
-   * Format tool result into the standardized XML prompt for the next turn.
+   * Format tool result into standard Markdown format for the next turn.
    */
   static formatToolResult(result: ToolResult): string {
-    const payload = {
-      Status: result.isError ? 'Error' : 'Success',
-      ExitCode: result.exitCode ?? (result.isError ? 1 : 0),
-      Output: result.output,
-    }
-    return `<tool_result name="${result.name}">\n${JSON.stringify(payload, null, 2)}\n</tool_result>`
+    const statusText = result.isError ? 'Error' : 'Success'
+    const code = result.exitCode ?? (result.isError ? 1 : 0)
+    return `### Tool Result: \`${result.name}\`\n- **Status**: ${statusText}\n- **Exit Code**: ${code}\n\n#### Output:\n${result.output}`
   }
 }

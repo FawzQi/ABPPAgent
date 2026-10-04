@@ -237,25 +237,33 @@ export const WEB_CHAT_TARGETS: WebChatTarget[] = [
     url: "https://chatgpt.com/",
     inputSelectors: [
       "#prompt-textarea",
+      'div#prompt-textarea[contenteditable="true"]',
       'div[contenteditable="true"].ProseMirror',
       'div[contenteditable="true"]',
+      'textarea[data-id="root"]',
     ],
     sendSelectors: [
       'button[data-testid="send-button"]',
       'button[aria-label="Send prompt"]',
+      'button[aria-label*="Send" i]',
+      'button[data-testid="fruitjuice-send-button"]',
     ],
     responseSelectors: [
       '[data-message-author-role="assistant"] .markdown',
       '[data-message-author-role="assistant"]',
+      'div.agent-turn',
+      '.markdown.prose',
     ],
     stopSelectors: [
       'button[data-testid="stop-button"]',
       'button[aria-label*="Stop" i]',
+      'button[aria-label*="Stop generating" i]',
     ],
     copySelectors: [
       'button[data-testid="copy-turn-action-button"]',
       'button[aria-label="Copy"]',
       'button[aria-label*="Copy" i]',
+      'button[aria-label*="Copy code" i]',
     ],
     fileSelectors: ['input[type="file"]'],
   },
@@ -291,17 +299,39 @@ export const WEB_CHAT_TARGETS: WebChatTarget[] = [
     url: "https://gemini.google.com/app",
     inputSelectors: [
       'rich-textarea .ql-editor[contenteditable="true"]',
+      'div.ql-editor[contenteditable="true"]',
       'div[contenteditable="true"].ql-editor',
+      'div[contenteditable="true"][role="textbox"]',
       'div[contenteditable="true"]',
+      'textarea[aria-label*="prompt" i]',
     ],
-    sendSelectors: ["button.send-button", 'button[aria-label*="Send" i]'],
+    sendSelectors: [
+      "button.send-button",
+      'button[aria-label*="Send" i]',
+      'button[aria-label*="Submit" i]',
+      '.send-button-container button',
+      'div[role="button"][aria-label*="Send" i]',
+    ],
     responseSelectors: [
       "model-response",
       ".model-response-text",
       "message-content",
+      ".response-container-content",
+      "div.markdown",
+      ".markdown",
     ],
-    stopSelectors: ['button[aria-label*="Stop" i]'],
-    copySelectors: ["copy-button button", 'button[aria-label*="Copy" i]'],
+    stopSelectors: [
+      'button[aria-label*="Stop" i]',
+      '.stop-button',
+      'button[aria-label*="Stop response" i]',
+    ],
+    copySelectors: [
+      "copy-button button",
+      'button[aria-label*="Copy" i]',
+      'button[data-test-id="copy-button"]',
+      'button[title*="Copy" i]',
+      'div[role="button"][aria-label*="Copy" i]',
+    ],
     fileSelectors: ['input[type="file"]'],
   },
   {
@@ -977,7 +1007,7 @@ const CLEAN_ASSISTANT_TEXT_FUNCTION = `
   };
 `;
 
-function buildScript(target: WebChatTarget, prompt: string): string {
+function buildScript(target: WebChatTarget, prompt: string, sendDelayMs: number = 1000): string {
   return `(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const queryFirst = (sels) => {
@@ -1034,9 +1064,15 @@ function buildScript(target: WebChatTarget, prompt: string): string {
     sel.addRange(range);
     document.execCommand('insertText', false, prompt);
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+    if (!input.textContent || input.textContent.trim().length === 0) {
+      input.innerText = prompt;
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   }
-  // Pacing: Wait 1 second after putting prompt into input before clicking send
-  await sleep(1000);
+  // Pacing: Wait configured delay + random 50-150ms jitter after putting prompt into input before clicking send
+  const jitter = Math.floor(Math.random() * 101) + 50;
+  await sleep(${Math.max(50, sendDelayMs)} + jitter);
   if (aborted()) return { ok: false, error: 'Cancelled.' };
 
   // Snapshot the transcript before submitting so the loop below only ever
@@ -1724,6 +1760,7 @@ async function deliverPrompt(
   win: BrowserWindow,
   target: WebChatTarget,
   prompt: string,
+  sendDelayMs: number = 1000,
 ): Promise<WebChatSendResult> {
   try {
     await win.webContents.executeJavaScript(
@@ -1740,7 +1777,7 @@ async function deliverPrompt(
 
   try {
     const raw = (await win.webContents.executeJavaScript(
-      buildScript(target, prompt),
+      buildScript(target, prompt, sendDelayMs),
       true,
     )) as
       | { ok?: boolean; text?: string; error?: string; stable?: boolean }
@@ -1903,18 +1940,12 @@ const WEB_CHAT_PROMPT_COOLDOWN_MS = 1000;
 export async function sendToWebChat(
   targetId: WebChatTargetId,
   prompt: string,
+  sendDelayMs: number = 1000,
 ): Promise<WebChatSendResult> {
   const target = findTarget(targetId);
   if (!target)
     return { ok: false, error: `Unknown web chat target: ${targetId}` };
 
-  // Enforce 1-second cooldown between sending prompts to web chat LLM
-  const lastTime = lastPromptSentTimes.get(targetId) ?? 0;
-  const elapsed = Date.now() - lastTime;
-  if (elapsed < WEB_CHAT_PROMPT_COOLDOWN_MS) {
-    const waitMs = WEB_CHAT_PROMPT_COOLDOWN_MS - elapsed;
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
-  }
   lastPromptSentTimes.set(targetId, Date.now());
 
   let win: BrowserWindow;
@@ -1929,7 +1960,7 @@ export async function sendToWebChat(
 
   const maxRetries = 3;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const result = await deliverPrompt(win, target, prompt);
+    const result = await deliverPrompt(win, target, prompt, sendDelayMs);
 
     const isTransientError =
       !result.ok &&
