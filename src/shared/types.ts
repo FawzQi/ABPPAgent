@@ -223,6 +223,12 @@ export const DEFAULT_FILE_SUGGESTION_SETTINGS: FileSuggestionSettings = {
   hydeModel: 'deepseek-flash',
 }
 
+export interface BasePromptInfo {
+  current: string
+  defaultPrompt: string
+  isCustom: boolean
+}
+
 export interface AgentApi {
   // Session management
   getSessions: () => Promise<Session[]>
@@ -268,6 +274,11 @@ export interface AgentApi {
   getFileSuggestionSettings: () => Promise<FileSuggestionSettings>
   saveFileSuggestionSettings: (updates: FileSuggestionSettingsSaveRequest) => Promise<FileSuggestionSettings>
   getAiProviders: () => Promise<AiProviderInfo[]>
+
+  // Base Prompt Settings
+  getBasePrompt: () => Promise<BasePromptInfo>
+  saveBasePrompt: (prompt: string) => Promise<BasePromptInfo>
+  resetBasePrompt: () => Promise<BasePromptInfo>
 
   // Events / Listeners
   onTimelineUpdate: (callback: (item: TimelineItem) => void) => () => void

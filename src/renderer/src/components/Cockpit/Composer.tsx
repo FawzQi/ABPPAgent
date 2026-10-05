@@ -1,17 +1,41 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Send, Square, FileCode, Sparkles, ChevronDown, Check } from 'lucide-react'
+import { Send, Square, Sparkles, ChevronDown, Check } from 'lucide-react'
 import { useSessionStore } from '../../stores/session-store'
 import { useTargetStore } from '../../stores/target-store'
 
 export const Composer: React.FC = () => {
   const [text, setText] = useState('')
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+  const [suggestEnabled, setSuggestEnabled] = useState(true)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const { activeSession, setTargetId, sendUserMessage, abortAgent } = useSessionStore()
   const { targets } = useTargetStore()
 
   const isRunning = activeSession?.status === 'running'
+
+  // Fetch file suggestion settings
+  useEffect(() => {
+    if (window.agentApi?.getFileSuggestionSettings) {
+      window.agentApi
+        .getFileSuggestionSettings()
+        .then((s) => {
+          if (s) setSuggestEnabled(s.enabled ?? true)
+        })
+        .catch(() => {})
+    }
+  }, [])
+
+  const handleToggleSuggest = async () => {
+    if (!window.agentApi?.saveFileSuggestionSettings) return
+    const next = !suggestEnabled
+    setSuggestEnabled(next)
+    try {
+      await window.agentApi.saveFileSuggestionSettings({ enabled: next })
+    } catch {
+      setSuggestEnabled(!next)
+    }
+  }
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -47,11 +71,6 @@ export const Composer: React.FC = () => {
       textareaRef.current.style.height = 'auto'
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`
     }
-  }
-
-  const insertSnippet = (snippet: string) => {
-    setText((prev) => (prev ? `${prev} ${snippet}` : snippet))
-    textareaRef.current?.focus()
   }
 
   const currentTarget = targets.find((t) => t.id === activeSession?.targetId) || targets[0]
@@ -101,20 +120,24 @@ export const Composer: React.FC = () => {
           )}
         </div>
 
+        {/* File Suggestion Toggle Beside Model Selector */}
         <button
-          onClick={() => insertSnippet('/plan')}
-          className="flex items-center gap-1 bg-[#1e2127] hover:bg-[#2a2f38] text-slate-300 px-2 py-0.5 rounded cursor-pointer transition border border-[#2c3038]"
+          onClick={handleToggleSuggest}
+          className={`flex items-center gap-1.5 px-2 py-0.5 rounded cursor-pointer transition border text-[11px] select-none ${
+            suggestEnabled
+              ? 'bg-[#1e2127] text-sky-300 border-sky-500/40 hover:bg-[#2a2f38]'
+              : 'bg-[#1e2127] text-slate-500 border-[#2c3038] hover:bg-[#2a2f38] hover:text-slate-400'
+          }`}
+          title={
+            suggestEnabled
+              ? 'File suggestion is enabled (click to disable)'
+              : 'File suggestion is disabled (click to enable)'
+          }
         >
-          <Sparkles size={11} className="text-amber-400" />
-          <span>/plan</span>
+          <Sparkles size={11} className={suggestEnabled ? 'text-sky-400' : 'text-slate-500'} />
+          <span>Suggest: {suggestEnabled ? 'ON' : 'OFF'}</span>
         </button>
-        <button
-          onClick={() => insertSnippet('@file')}
-          className="flex items-center gap-1 bg-[#1e2127] hover:bg-[#2a2f38] text-slate-300 px-2 py-0.5 rounded cursor-pointer transition border border-[#2c3038]"
-        >
-          <FileCode size={11} className="text-sky-400" />
-          <span>@file</span>
-        </button>
+
         <span className="text-slate-500 text-[10px] ml-auto">
           Enter to send • Shift+Enter for newline
         </span>

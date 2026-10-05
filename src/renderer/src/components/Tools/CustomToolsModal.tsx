@@ -2,12 +2,12 @@ import React, { useEffect, useState } from 'react'
 import { X, Wrench, Terminal, FileText, Search, Network, FileEdit, Clock, Sliders, Zap, Check, Sparkles, Key, Eye, EyeOff, ExternalLink } from 'lucide-react'
 import { useToolsStore } from '../../stores/tools-store'
 import { useSessionStore } from '../../stores/session-store'
-import type { CustomToolsConfig, FileSuggestionSettings, AiProviderId, ChatProviderId, AiProviderInfo } from '@shared/types'
+import type { CustomToolsConfig, FileSuggestionSettings, AiProviderId, ChatProviderId, AiProviderInfo, BasePromptInfo } from '@shared/types'
 
 export const CustomToolsModal: React.FC = () => {
   const { isOpen, config, closeModal, toggleTool, loadConfig } = useToolsStore()
   const { activeSession, updateDelays } = useSessionStore()
-  const [activeTab, setActiveTab] = useState<'tools' | 'delays' | 'suggest'>('tools')
+  const [activeTab, setActiveTab] = useState<'tools' | 'delays' | 'suggest' | 'prompt'>('tools')
 
   const [suggestSettings, setSuggestSettings] = useState<FileSuggestionSettings | null>(null)
   const [aiProviders, setAiProviders] = useState<AiProviderInfo[]>([])
@@ -19,6 +19,10 @@ export const CustomToolsModal: React.FC = () => {
   const [typesafeKeyDraft, setTypesafeKeyDraft] = useState('')
   const [showTypesafeKey, setShowTypesafeKey] = useState(false)
   const [typesafeSavedMessage, setTypesafeSavedMessage] = useState(false)
+
+  const [basePrompt, setBasePrompt] = useState<BasePromptInfo | null>(null)
+  const [basePromptDraft, setBasePromptDraft] = useState<string>('')
+  const [basePromptSavedMessage, setBasePromptSavedMessage] = useState(false)
 
   const cooldownTimer = activeSession?.delays?.cooldownTimerMs ?? activeSession?.delays?.sendPromptDelayMs ?? 3000
   const sendDelay = activeSession?.delays?.sendDelayMs ?? activeSession?.delays?.interactionDelayMs ?? 1000
@@ -39,6 +43,10 @@ export const CustomToolsModal: React.FC = () => {
       }).catch(() => {})
       window.agentApi.getAiProviders().then((p) => {
         setAiProviders(p)
+      }).catch(() => {})
+      window.agentApi.getBasePrompt().then((bp) => {
+        setBasePrompt(bp)
+        setBasePromptDraft(bp.current)
       }).catch(() => {})
     }
   }, [isOpen])
@@ -135,6 +143,28 @@ export const CustomToolsModal: React.FC = () => {
     })
     setSuggestSettings(updated)
     setTypesafeKeyDraft('')
+  }
+
+  const handleSaveBasePrompt = async () => {
+    if (!window.agentApi?.saveBasePrompt) return
+    const updated = await window.agentApi.saveBasePrompt(basePromptDraft)
+    setBasePrompt(updated)
+    setBasePromptDraft(updated.current)
+    setBasePromptSavedMessage(true)
+    setTimeout(() => setBasePromptSavedMessage(false), 2500)
+  }
+
+  const handleResetBasePrompt = async () => {
+    if (!window.agentApi?.resetBasePrompt) return
+    const updated = await window.agentApi.resetBasePrompt()
+    setBasePrompt(updated)
+    setBasePromptDraft(updated.current)
+    setBasePromptSavedMessage(true)
+    setTimeout(() => setBasePromptSavedMessage(false), 2500)
+  }
+
+  const insertPromptPlaceholder = (placeholder: string) => {
+    setBasePromptDraft((prev) => (prev ? `${prev}\n${placeholder}` : placeholder))
   }
 
   const toolItems = [
@@ -244,6 +274,17 @@ export const CustomToolsModal: React.FC = () => {
           >
             <Sparkles size={13} />
             <span>File Suggestion</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('prompt')}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition cursor-pointer ${
+              activeTab === 'prompt'
+                ? 'border-sky-500 text-sky-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FileText size={13} />
+            <span>Base Prompt</span>
           </button>
         </div>
 
@@ -852,6 +893,93 @@ export const CustomToolsModal: React.FC = () => {
                 </p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Tab 4: Base Prompt Editor */}
+        {activeTab === 'prompt' && (
+          <div className="p-4 space-y-3 max-h-[65vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-200">System Base Prompt</span>
+                  {basePrompt?.isCustom ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      Custom Active
+                    </span>
+                  ) : (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                      Default
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  The foundational system prompt sent to the LLM on the initial turn.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleResetBasePrompt}
+                  className="px-2.5 py-1 text-xs text-slate-400 hover:text-slate-200 bg-[#16181d] hover:bg-[#2a2f38] border border-[#2c3038] rounded transition cursor-pointer"
+                  title="Reset to default system prompt"
+                >
+                  Reset Default
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveBasePrompt}
+                  className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-sky-600 hover:bg-sky-500 text-white rounded transition cursor-pointer"
+                >
+                  {basePromptSavedMessage ? (
+                    <>
+                      <Check size={12} className="text-emerald-300" />
+                      <span>Saved!</span>
+                    </>
+                  ) : (
+                    <span>Save Prompt</span>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Placeholder info chips */}
+            <div className="p-2.5 rounded-lg border border-[#2c3038] bg-[#16181d] space-y-1.5">
+              <span className="text-[11px] font-medium text-slate-300 block">
+                Dynamic Placeholders (Click to insert):
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { tag: '{{workspacePath}}', desc: 'Workspace absolute path' },
+                  { tag: '{{projectContext}}', desc: 'Auto-retrieved codebase context' },
+                  { tag: '{{availableTools}}', desc: 'Enabled tools schema & parameters' },
+                ].map((ph) => (
+                  <button
+                    key={ph.tag}
+                    type="button"
+                    onClick={() => insertPromptPlaceholder(ph.tag)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#1e2127] hover:bg-[#2a2f38] border border-[#2c3038] hover:border-sky-500/50 rounded text-[11px] font-mono text-sky-300 transition cursor-pointer"
+                    title={`Insert ${ph.desc}`}
+                  >
+                    <span>{ph.tag}</span>
+                    <span className="text-[10px] text-slate-500 font-sans">({ph.desc})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Prompt Editor */}
+            <div className="relative">
+              <textarea
+                value={basePromptDraft}
+                onChange={(e) => setBasePromptDraft(e.target.value)}
+                rows={16}
+                spellCheck={false}
+                placeholder="Enter autonomous base prompt template..."
+                className="w-full bg-[#16181d] border border-[#2c3038] rounded-lg p-3 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 leading-relaxed resize-y min-h-[300px]"
+              />
+            </div>
           </div>
         )}
 

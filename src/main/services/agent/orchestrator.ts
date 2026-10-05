@@ -10,6 +10,7 @@ import { FilesystemTools } from '../tools/filesystem'
 import { DirectoryExplorer } from '../tools/explorer'
 import { CustomToolsService, getExtendedEnv } from '../tools/custom-tools'
 import { generateCodebaseContext } from './codebase-context'
+import { getBasePrompt } from './base-prompt'
 import { validateCall, checkReread, fileInfo, forget, typecheck } from './workspace-state'
 
 export interface OrchestratorCallbacks {
@@ -151,7 +152,13 @@ export class AgentOrchestrator {
     const codebaseContext = await generateCodebaseContext(session.workspacePath, userText)
 
     if (isFirstTurn) {
-      const sysPrompt = buildSystemPrompt(session.workspacePath, codebaseContext || undefined, session.customTools)
+      const basePromptData = getBasePrompt()
+      const sysPrompt = buildSystemPrompt(
+        session.workspacePath,
+        codebaseContext || undefined,
+        session.customTools,
+        basePromptData.current,
+      )
       promptToSend = `${sysPrompt}\n\n# User Goal\n${userText}`
     } else if (codebaseContext) {
       promptToSend = `${codebaseContext}\n\n# User Goal\n${userText}`

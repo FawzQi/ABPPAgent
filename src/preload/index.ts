@@ -62,6 +62,14 @@ const agentApi: AgentApi = {
   getAiProviders: () =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_AI_PROVIDERS),
 
+  // Base Prompt Settings
+  getBasePrompt: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_BASE_PROMPT),
+  saveBasePrompt: (prompt: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_BASE_PROMPT, prompt),
+  resetBasePrompt: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.RESET_BASE_PROMPT),
+
   onTimelineUpdate: (callback: (item: TimelineItem) => void) => {
     const handler = (_event: any, item: TimelineItem) => callback(item)
     ipcRenderer.on(IPC_CHANNELS.EVENT_TIMELINE_UPDATE, handler)

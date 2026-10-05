@@ -44,6 +44,11 @@ export const IPC_CHANNELS = {
   SAVE_FILE_SUGGESTION_SETTINGS: 'agent:save-file-suggestion-settings',
   GET_AI_PROVIDERS: 'agent:get-ai-providers',
 
+  // Base Prompt
+  GET_BASE_PROMPT: 'agent:get-base-prompt',
+  SAVE_BASE_PROMPT: 'agent:save-base-prompt',
+  RESET_BASE_PROMPT: 'agent:reset-base-prompt',
+
   // Push Events (Main -> Renderer)
   EVENT_TIMELINE_UPDATE: 'agent-event:timeline-update',
   EVENT_SESSION_UPDATE: 'agent-event:session-update',

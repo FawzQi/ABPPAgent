@@ -15,6 +15,7 @@ import { DirectoryExplorer } from './services/tools/explorer'
 import * as GitService from './services/git/git-service'
 import { getFileSuggestionSettings, saveFileSuggestionSettings } from './services/agent/ai-settings'
 import { listProviders } from './services/agent/ai-providers'
+import { getBasePrompt, saveBasePrompt, resetBasePrompt } from './services/agent/base-prompt'
 
 export function registerIpcHandlers(): void {
   // Broadcast helper
@@ -222,4 +223,20 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.GET_AI_PROVIDERS, async () => {
     return listProviders()
   })
+
+  // 8. Base Prompt Settings
+  ipcMain.handle(IPC_CHANNELS.GET_BASE_PROMPT, async () => {
+    return getBasePrompt()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SAVE_BASE_PROMPT, async (_e, prompt: string) => {
+    saveBasePrompt(prompt)
+    return getBasePrompt()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.RESET_BASE_PROMPT, async () => {
+    resetBasePrompt()
+    return getBasePrompt()
+  })
 }
+
