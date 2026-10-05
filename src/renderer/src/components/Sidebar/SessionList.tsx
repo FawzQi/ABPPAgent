@@ -6,12 +6,12 @@ export const SessionList: React.FC = () => {
   const { sessions, activeSession, createSession, selectSession, deleteSession } = useSessionStore()
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 border-b border-slate-800">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/60">
+    <div className="flex flex-col flex-1 min-h-0 border-b border-[#2c3038]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[#2c3038]">
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Sessions</span>
         <button
           onClick={() => createSession()}
-          className="flex items-center gap-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded transition cursor-pointer"
+          className="flex items-center gap-1 text-xs bg-sky-600 hover:bg-sky-500 text-white px-2 py-0.5 rounded transition cursor-pointer"
           title="Create New Session"
         >
           <Plus size={13} />
@@ -31,12 +31,12 @@ export const SessionList: React.FC = () => {
                 onClick={() => selectSession(session.id)}
                 className={`group flex items-center justify-between px-2.5 py-1.5 rounded text-xs cursor-pointer transition ${
                   isActive
-                    ? 'bg-slate-800 text-indigo-400 font-medium border border-slate-700/60'
-                    : 'text-slate-300 hover:bg-slate-900/60 hover:text-slate-200'
+                    ? 'bg-[#1e2127] text-sky-400 font-medium border border-[#2c3038]'
+                    : 'text-slate-300 hover:bg-[#1e2127] hover:text-slate-100 border border-transparent'
                 }`}
               >
                 <div className="flex items-center gap-2 truncate">
-                  <MessageSquare size={13} className={isActive ? 'text-indigo-400' : 'text-slate-500'} />
+                  <MessageSquare size={13} className={isActive ? 'text-sky-400' : 'text-slate-500'} />
                   <span className="truncate">{session.title}</span>
                 </div>
                 <button

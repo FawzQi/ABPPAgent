@@ -32,8 +32,8 @@ export const TerminalWidget: React.FC<TerminalWidgetProps> = ({
   }
 
   return (
-    <div className="rounded border border-slate-800 bg-slate-900/90 font-mono text-xs overflow-hidden my-2">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-slate-950 border-b border-slate-800">
+    <div className="rounded border border-[#2c3038] bg-[#1e2127] font-mono text-xs overflow-hidden my-2">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#16181d] border-b border-[#2c3038]">
         <div className="flex items-center gap-2 truncate">
           <Terminal size={13} className="text-slate-400 shrink-0" />
           <span className="text-emerald-400 font-semibold">$</span>
@@ -43,7 +43,7 @@ export const TerminalWidget: React.FC<TerminalWidgetProps> = ({
         <div className="flex items-center gap-2 shrink-0">
           {isRunning ? (
             <div className="flex items-center gap-1.5">
-              <span className="flex items-center gap-1 text-blue-400">
+              <span className="flex items-center gap-1 text-sky-400">
                 <Clock size={12} className="animate-spin" />
                 <span>Running</span>
               </span>
@@ -73,9 +73,9 @@ export const TerminalWidget: React.FC<TerminalWidgetProps> = ({
 
       <div
         ref={outputRef}
-        className="p-3 text-slate-300 whitespace-pre-wrap max-h-64 overflow-y-auto font-mono text-[11px] leading-relaxed select-text"
+        className="p-3 text-[#e6e8eb] whitespace-pre-wrap max-h-64 overflow-y-auto font-mono text-[11px] leading-relaxed select-text bg-[#16181d]"
       >
-        {output ? cleanAnsi(output) : <span className="text-slate-600 italic">Waiting for terminal output...</span>}
+        {output ? cleanAnsi(output) : <span className="text-slate-500 italic">Waiting for terminal output...</span>}
       </div>
     </div>
   )

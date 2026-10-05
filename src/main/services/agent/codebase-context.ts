@@ -5,7 +5,6 @@ import { getFileSuggestionSettings, getApiKey } from './ai-settings'
 import { expandQueryLocally, expandQueryWithAi } from './query-expander'
 import { buildSkeleton, buildImportGraph } from './codebase-map'
 import { scoreCandidatesWithJev } from './jev'
-import { rankCandidatesWithLlm } from './llm-ranker'
 
 const STOPWORDS = new Set([
   'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and',

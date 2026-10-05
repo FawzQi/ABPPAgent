@@ -8,27 +8,6 @@ export const googleProvider: AiProvider = {
   label: 'Google AI Studio',
   keyUrl: 'https://aistudio.google.com/apikey',
   models: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash'],
-  async listModels(apiKey: string): Promise<string[]> {
-    const url = `${BASE}?key=${encodeURIComponent(apiKey)}`
-    let response: Response
-    try {
-      response = await httpFetch(url)
-    } catch (error) {
-      throw new Error(describeFetchError('Google AI Studio', error))
-    }
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '')
-      throw new Error(`Google AI Studio model list returned ${response.status}: ${detail.slice(0, 200) || response.statusText}`)
-    }
-    const json = (await response.json()) as {
-      models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>
-    }
-    return (json.models ?? [])
-      .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
-      .map((m) => (m.name ?? '').replace(/^models\//, ''))
-      .filter((name) => name !== '')
-      .sort()
-  },
   async complete(input: CompleteInput): Promise<string> {
     const model = input.model.replace(/^models\//, '')
     const url = `${BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(input.apiKey)}`

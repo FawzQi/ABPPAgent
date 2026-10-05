@@ -72,12 +72,3 @@ export function listProviders(): AiProviderInfo[] {
   }))
 }
 
-export async function discoverModels(
-  id: AiProviderId,
-  apiKey: string,
-): Promise<string[]> {
-  const provider = PROVIDERS[id]
-  if (!provider) return []
-  if (!provider.listModels) return [...provider.models]
-  return provider.listModels(apiKey)
-}

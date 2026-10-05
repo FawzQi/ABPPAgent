@@ -190,11 +190,11 @@ export const CustomToolsModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="w-full max-w-xl max-h-[85vh] bg-slate-900 border border-slate-700/80 rounded-lg shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="w-full max-w-xl max-h-[85vh] bg-[#1e2127] border border-[#2c3038] rounded-lg shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/60">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#2c3038] bg-[#16181d]">
           <div className="flex items-center gap-2">
-            <div className="p-1 rounded bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
+            <div className="p-1 rounded bg-sky-600/20 text-sky-400 border border-sky-500/30">
               <Sliders size={16} />
             </div>
             <div>
@@ -204,19 +204,19 @@ export const CustomToolsModal: React.FC = () => {
           </div>
           <button
             onClick={closeModal}
-            className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition cursor-pointer"
+            className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-[#2a2f38] transition cursor-pointer"
           >
             <X size={16} />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-800 bg-slate-950/30 px-4 pt-1 gap-2">
+        <div className="flex border-b border-[#2c3038] bg-[#16181d] px-4 pt-1 gap-2">
           <button
             onClick={() => setActiveTab('tools')}
             className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition cursor-pointer ${
               activeTab === 'tools'
-                ? 'border-indigo-500 text-indigo-400'
+                ? 'border-sky-500 text-sky-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -227,7 +227,7 @@ export const CustomToolsModal: React.FC = () => {
             onClick={() => setActiveTab('delays')}
             className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition cursor-pointer ${
               activeTab === 'delays'
-                ? 'border-indigo-500 text-indigo-400'
+                ? 'border-sky-500 text-sky-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -238,7 +238,7 @@ export const CustomToolsModal: React.FC = () => {
             onClick={() => setActiveTab('suggest')}
             className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition cursor-pointer ${
               activeTab === 'suggest'
-                ? 'border-indigo-500 text-indigo-400'
+                ? 'border-sky-500 text-sky-400'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -256,8 +256,8 @@ export const CustomToolsModal: React.FC = () => {
                 onClick={() => handleToggle(item.key)}
                 className={`flex items-start gap-3 p-3 rounded-lg border transition cursor-pointer select-none ${
                   item.checked
-                    ? 'bg-slate-800/60 border-slate-700 text-slate-200'
-                    : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:border-slate-700/60'
+                    ? 'bg-[#1e2127] border-sky-500/60 text-slate-200'
+                    : 'bg-[#16181d] border-[#2c3038] text-slate-400 hover:border-slate-600'
                 }`}
               >
                 <div className="mt-0.5 shrink-0">{item.icon}</div>
@@ -266,7 +266,7 @@ export const CustomToolsModal: React.FC = () => {
                     <span className="text-xs font-semibold text-slate-200">{item.label}</span>
                     <div
                       className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors duration-200 ease-in-out ${
-                        item.checked ? 'bg-indigo-600' : 'bg-slate-700'
+                        item.checked ? 'bg-sky-600' : 'bg-[#2c3038]'
                       }`}
                     >
                       <div
@@ -281,7 +281,7 @@ export const CustomToolsModal: React.FC = () => {
                     {item.tools.map((t) => (
                       <span
                         key={t}
-                        className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400"
+                        className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#16181d] border border-[#2c3038] text-slate-400"
                       >
                         {t}
                       </span>
@@ -297,7 +297,7 @@ export const CustomToolsModal: React.FC = () => {
         {activeTab === 'delays' && (
           <div className="p-4 space-y-4 max-h-[65vh] overflow-y-auto">
             {/* Delay 1: Cooldown Timer */}
-            <div className="p-3.5 rounded-lg border border-slate-800 bg-slate-950/40 space-y-3">
+            <div className="p-3.5 rounded-lg border border-[#2c3038] bg-[#16181d] space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Zap size={15} className="text-amber-400" />
@@ -324,7 +324,7 @@ export const CustomToolsModal: React.FC = () => {
                   step="250"
                   value={cooldownTimer}
                   onChange={(e) => handleCooldownTimerChange(Number(e.target.value))}
-                  className="flex-1 accent-indigo-500 cursor-pointer h-1.5 bg-slate-700 rounded-lg"
+                  className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
                 />
                 <input
                   type="number"
@@ -333,13 +333,13 @@ export const CustomToolsModal: React.FC = () => {
                   step="250"
                   value={cooldownTimer}
                   onChange={(e) => handleCooldownTimerChange(Number(e.target.value))}
-                  className="w-20 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-200 text-right font-mono focus:outline-hidden focus:border-indigo-500"
+                  className="w-20 px-2 py-1 bg-[#1e2127] border border-[#2c3038] rounded text-xs text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
                 />
               </div>
             </div>
 
             {/* Delay 2: Send Prompt Delay */}
-            <div className="p-3.5 rounded-lg border border-slate-800 bg-slate-950/40 space-y-3">
+            <div className="p-3.5 rounded-lg border border-[#2c3038] bg-[#16181d] space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Clock size={15} className="text-sky-400" />
@@ -366,7 +366,7 @@ export const CustomToolsModal: React.FC = () => {
                   step="100"
                   value={sendDelay}
                   onChange={(e) => handleSendDelayChange(Number(e.target.value))}
-                  className="flex-1 accent-indigo-500 cursor-pointer h-1.5 bg-slate-700 rounded-lg"
+                  className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
                 />
                 <input
                   type="number"
@@ -375,13 +375,13 @@ export const CustomToolsModal: React.FC = () => {
                   step="100"
                   value={sendDelay}
                   onChange={(e) => handleSendDelayChange(Number(e.target.value))}
-                  className="w-20 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-200 text-right font-mono focus:outline-hidden focus:border-indigo-500"
+                  className="w-20 px-2 py-1 bg-[#1e2127] border border-[#2c3038] rounded text-xs text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
                 />
               </div>
             </div>
 
             {/* Delay 3: Tool Execution Delay */}
-            <div className="p-3.5 rounded-lg border border-slate-800 bg-slate-950/40 space-y-3">
+            <div className="p-3.5 rounded-lg border border-[#2c3038] bg-[#16181d] space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Sliders size={15} className="text-purple-400" />
@@ -407,7 +407,7 @@ export const CustomToolsModal: React.FC = () => {
                   step="25"
                   value={toolExecutionDelay}
                   onChange={(e) => handleToolExecutionDelayChange(Number(e.target.value))}
-                  className="flex-1 accent-indigo-500 cursor-pointer h-1.5 bg-slate-700 rounded-lg"
+                  className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
                 />
                 <input
                   type="number"
@@ -416,7 +416,7 @@ export const CustomToolsModal: React.FC = () => {
                   step="25"
                   value={toolExecutionDelay}
                   onChange={(e) => handleToolExecutionDelayChange(Number(e.target.value))}
-                  className="w-20 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-200 text-right font-mono focus:outline-hidden focus:border-indigo-500"
+                  className="w-20 px-2 py-1 bg-[#1e2127] border border-[#2c3038] rounded text-xs text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
                 />
               </div>
             </div>
@@ -432,8 +432,8 @@ export const CustomToolsModal: React.FC = () => {
                   onClick={() => applyPreset(1000, 500, 100)}
                   className={`px-2.5 py-2 rounded border text-left transition cursor-pointer ${
                     cooldownTimer === 1000 && sendDelay === 500 && toolExecutionDelay === 100
-                      ? 'border-indigo-500 bg-indigo-950/40 text-indigo-300'
-                      : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      ? 'border-sky-500 bg-sky-950/40 text-sky-300'
+                      : 'border-[#2c3038] bg-[#16181d] text-slate-400 hover:border-slate-600 hover:text-slate-200'
                   }`}
                 >
                   <div className="flex items-center justify-between text-xs font-medium">
@@ -448,8 +448,8 @@ export const CustomToolsModal: React.FC = () => {
                   onClick={() => applyPreset(3000, 1000, 150)}
                   className={`px-2.5 py-2 rounded border text-left transition cursor-pointer ${
                     cooldownTimer === 3000 && sendDelay === 1000 && toolExecutionDelay === 150
-                      ? 'border-indigo-500 bg-indigo-950/40 text-indigo-300'
-                      : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      ? 'border-sky-500 bg-sky-950/40 text-sky-300'
+                      : 'border-[#2c3038] bg-[#16181d] text-slate-400 hover:border-slate-600 hover:text-slate-200'
                   }`}
                 >
                   <div className="flex items-center justify-between text-xs font-medium">
@@ -464,8 +464,8 @@ export const CustomToolsModal: React.FC = () => {
                   onClick={() => applyPreset(5000, 2000, 250)}
                   className={`px-2.5 py-2 rounded border text-left transition cursor-pointer ${
                     cooldownTimer === 5000 && sendDelay === 2000 && toolExecutionDelay === 250
-                      ? 'border-indigo-500 bg-indigo-950/40 text-indigo-300'
-                      : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                      ? 'border-sky-500 bg-sky-950/40 text-sky-300'
+                      : 'border-[#2c3038] bg-[#16181d] text-slate-400 hover:border-slate-600 hover:text-slate-200'
                   }`}
                 >
                   <div className="flex items-center justify-between text-xs font-medium">
@@ -483,17 +483,17 @@ export const CustomToolsModal: React.FC = () => {
         {activeTab === 'suggest' && (
           <div className="p-4 space-y-4 max-h-[65vh] overflow-y-auto">
             {/* Master Toggle */}
-            <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/40">
+            <div className="p-3 rounded-lg border border-[#2c3038] bg-[#16181d]">
               <label className="flex items-start gap-3 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={suggestSettings?.enabled ?? true}
                   onChange={(e) => handleUpdateSuggest({ enabled: e.target.checked })}
-                  className="mt-0.5 size-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 focus:ring-offset-0 accent-indigo-500 cursor-pointer"
+                  className="mt-0.5 size-4 rounded border-[#2c3038] bg-[#1e2127] text-sky-600 focus:ring-0 focus:ring-offset-0 accent-sky-500 cursor-pointer"
                 />
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <Sparkles size={14} className="text-indigo-400" />
+                    <Sparkles size={14} className="text-sky-400" />
                     <span className="text-xs font-medium text-slate-200">
                       Enable Codebase Context & File Suggestions
                     </span>
@@ -515,14 +515,14 @@ export const CustomToolsModal: React.FC = () => {
                   onClick={() => handleUpdateSuggest({ method: 'gitnexus-bm25' })}
                   className={`p-3 rounded-lg border cursor-pointer transition select-none ${
                     (suggestSettings?.method ?? 'gitnexus-bm25') === 'gitnexus-bm25'
-                      ? 'bg-indigo-950/30 border-indigo-500/80 text-slate-200'
-                      : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700'
+                      ? 'bg-sky-950/30 border-sky-500/80 text-slate-200'
+                      : 'bg-[#16181d] border-[#2c3038] text-slate-400 hover:border-slate-600'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-200">GitNexus + BM25</span>
                     {(suggestSettings?.method ?? 'gitnexus-bm25') === 'gitnexus-bm25' && (
-                      <Check size={14} className="text-indigo-400" />
+                      <Check size={14} className="text-sky-400" />
                     )}
                   </div>
                   <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/40 text-[10px] text-emerald-300 font-mono">
@@ -537,17 +537,17 @@ export const CustomToolsModal: React.FC = () => {
                   onClick={() => handleUpdateSuggest({ method: 'hyde-gitnexus-bm25-jev' })}
                   className={`p-3 rounded-lg border cursor-pointer transition select-none ${
                     suggestSettings?.method === 'hyde-gitnexus-bm25-jev'
-                      ? 'bg-indigo-950/30 border-indigo-500/80 text-slate-200'
-                      : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700'
+                      ? 'bg-sky-950/30 border-sky-500/80 text-slate-200'
+                      : 'bg-[#16181d] border-[#2c3038] text-slate-400 hover:border-slate-600'
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-200">HyDE + GitNexus + BM25 + Jev</span>
                     {suggestSettings?.method === 'hyde-gitnexus-bm25-jev' && (
-                      <Check size={14} className="text-indigo-400" />
+                      <Check size={14} className="text-sky-400" />
                     )}
                   </div>
-                  <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-indigo-950/60 border border-indigo-800/40 text-[10px] text-indigo-300 font-mono">
+                  <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-sky-950/60 border border-sky-800/40 text-[10px] text-sky-300 font-mono">
                     AI Expansion & Precision Scoring
                   </span>
                   <p className="text-[11px] text-slate-400 mt-1.5">
@@ -558,7 +558,7 @@ export const CustomToolsModal: React.FC = () => {
             </div>
 
             {/* HyDE Provider, Model & API Key Configuration */}
-            <div className="p-3.5 rounded-lg border border-slate-800 bg-slate-950/40 space-y-3.5">
+            <div className="p-3.5 rounded-lg border border-[#2c3038] bg-[#16181d] space-y-3.5">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
@@ -599,8 +599,8 @@ export const CustomToolsModal: React.FC = () => {
                           }}
                           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium border transition cursor-pointer ${
                             isSelected
-                              ? 'border-indigo-500 bg-indigo-950/60 text-indigo-200'
-                              : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                              ? 'border-sky-500 bg-sky-950/60 text-sky-200'
+                              : 'border-[#2c3038] bg-[#1e2127] text-slate-400 hover:border-slate-600 hover:text-slate-200'
                           }`}
                         >
                           <span>{p.label}</span>
@@ -622,7 +622,7 @@ export const CustomToolsModal: React.FC = () => {
                   ''
 
                 return (
-                  <div className="pt-2 border-t border-slate-800/80 space-y-3">
+                  <div className="pt-2 border-t border-[#2c3038] space-y-3">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-slate-300 font-medium">{activeInfo?.label || selectedProvider}</span>
                       {activeInfo?.keyUrl && (
@@ -630,7 +630,7 @@ export const CustomToolsModal: React.FC = () => {
                           href={activeInfo.keyUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline"
+                          className="flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 hover:underline"
                         >
                           <span>Get API Key</span>
                           <ExternalLink size={10} />
@@ -651,7 +651,7 @@ export const CustomToolsModal: React.FC = () => {
                           })
                         }
                         placeholder="e.g. deepseek-flash"
-                        className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                        className="w-full bg-[#1e2127] border border-[#2c3038] rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 font-mono"
                       />
                       {activeInfo && activeInfo.models.length > 1 && (
                         <div className="flex flex-wrap gap-1 mt-1.5">
@@ -661,14 +661,14 @@ export const CustomToolsModal: React.FC = () => {
                               type="button"
                               onClick={() =>
                                 handleUpdateSuggest({
-                                  hydeModel: m,
-                                  model: { provider: selectedProvider, model: m },
+                                   hydeModel: m,
+                                   model: { provider: selectedProvider, model: m },
                                 })
                               }
                               className={`text-[10px] px-1.5 py-0.5 rounded border transition cursor-pointer ${
                                 currentModel === m
-                                  ? 'border-indigo-500/70 bg-indigo-950/40 text-indigo-300'
-                                  : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:border-slate-700'
+                                  ? 'border-sky-500/70 bg-sky-950/40 text-sky-300'
+                                  : 'border-[#2c3038] bg-[#1e2127] text-slate-400 hover:border-slate-600'
                               }`}
                             >
                               {m}
@@ -701,7 +701,7 @@ export const CustomToolsModal: React.FC = () => {
                             value={apiKeyDraft}
                             onChange={(e) => setApiKeyDraft(e.target.value)}
                             placeholder={hasKey ? '••••••••••••••••••••••••••••••••' : 'Paste API key here...'}
-                            className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono pr-8"
+                            className="w-full bg-[#1e2127] border border-[#2c3038] rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 font-mono pr-8"
                           />
                           <button
                             type="button"
@@ -717,8 +717,8 @@ export const CustomToolsModal: React.FC = () => {
                           disabled={!apiKeyDraft.trim()}
                           className={`px-3 py-1.5 rounded text-xs font-medium transition cursor-pointer shrink-0 ${
                             apiKeyDraft.trim()
-                              ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                              : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                              ? 'bg-sky-600 hover:bg-sky-500 text-white'
+                              : 'bg-[#2c3038] text-slate-500 cursor-not-allowed'
                           }`}
                         >
                           Save
@@ -736,12 +736,12 @@ export const CustomToolsModal: React.FC = () => {
             </div>
 
             {/* Dedicated TypeSafe (Jev) Precision Scoring Section */}
-            <div className="p-3.5 rounded-lg border border-slate-800 bg-slate-950/40 space-y-3">
+            <div className="p-3.5 rounded-lg border border-[#2c3038] bg-[#16181d] space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                      <Sparkles size={13} className="text-indigo-400" />
+                      <Sparkles size={13} className="text-sky-400" />
                       TypeSafe (Jev) Precision Scoring
                     </h3>
                     {suggestSettings?.hasApiKey['typesafe'] ? (
@@ -749,7 +749,7 @@ export const CustomToolsModal: React.FC = () => {
                         ✓ Configured
                       </span>
                     ) : (
-                      <span className="px-1.5 py-0.5 rounded bg-slate-800/60 border border-slate-700/40 text-[10px] text-slate-400 font-mono">
+                      <span className="px-1.5 py-0.5 rounded bg-[#1e2127] border border-[#2c3038] text-[10px] text-slate-400 font-mono">
                         No API Key
                       </span>
                     )}
@@ -762,7 +762,7 @@ export const CustomToolsModal: React.FC = () => {
                   href="https://typesafe.ai/console"
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline"
+                  className="flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 hover:underline"
                 >
                   <span>Get Jev Key</span>
                   <ExternalLink size={10} />
@@ -770,11 +770,11 @@ export const CustomToolsModal: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-                <div className="p-2 rounded bg-slate-900/60 border border-slate-800">
+                <div className="p-2 rounded bg-[#1e2127] border border-[#2c3038]">
                   <span className="text-slate-400 block font-medium">Scoring Model:</span>
                   <span className="text-slate-200 font-mono">jev-latest</span>
                 </div>
-                <div className="p-2 rounded bg-slate-900/60 border border-slate-800">
+                <div className="p-2 rounded bg-[#1e2127] border border-[#2c3038]">
                   <span className="text-slate-400 block font-medium">Calibrated Inclusion:</span>
                   <span className="text-slate-200">Score ≥ 3 & Conf ≥ 85%</span>
                 </div>
@@ -802,7 +802,7 @@ export const CustomToolsModal: React.FC = () => {
                       value={typesafeKeyDraft}
                       onChange={(e) => setTypesafeKeyDraft(e.target.value)}
                       placeholder={suggestSettings?.hasApiKey['typesafe'] ? '••••••••••••••••••••••••••••••••' : 'Paste TypeSafe API key here...'}
-                      className="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono pr-8"
+                      className="w-full bg-[#1e2127] border border-[#2c3038] rounded px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 font-mono pr-8"
                     />
                     <button
                       type="button"
@@ -818,8 +818,8 @@ export const CustomToolsModal: React.FC = () => {
                     disabled={!typesafeKeyDraft.trim()}
                     className={`px-3 py-1.5 rounded text-xs font-medium transition cursor-pointer shrink-0 ${
                       typesafeKeyDraft.trim()
-                        ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                        ? 'bg-sky-600 hover:bg-sky-500 text-white'
+                        : 'bg-[#2c3038] text-slate-500 cursor-not-allowed'
                     }`}
                   >
                     Save
@@ -835,13 +835,13 @@ export const CustomToolsModal: React.FC = () => {
 
             {/* HyDE Option when HyDE mode is chosen */}
             {suggestSettings?.method === 'hyde-gitnexus-bm25-jev' && (
-              <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/40 space-y-2">
+              <div className="p-3 rounded-lg border border-[#2c3038] bg-[#16181d] space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={suggestSettings.enableHyde ?? true}
                     onChange={(e) => handleUpdateSuggest({ enableHyde: e.target.checked })}
-                    className="size-3.5 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-0 accent-indigo-500 cursor-pointer"
+                    className="size-3.5 rounded border-[#2c3038] bg-[#1e2127] text-sky-600 focus:ring-0 accent-sky-500 cursor-pointer"
                   />
                   <span className="text-xs font-medium text-slate-300">
                     Use HyDE AI Query Expansion (Hypothetical Document Embeddings)
@@ -856,11 +856,11 @@ export const CustomToolsModal: React.FC = () => {
         )}
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-slate-800 bg-slate-950/40 text-xs">
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-[#2c3038] bg-[#16181d] text-xs">
           <span className="text-[11px] text-slate-500">Settings save automatically to active session</span>
           <button
             onClick={closeModal}
-            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-medium transition cursor-pointer"
+            className="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-xs font-medium transition cursor-pointer"
           >
             Done
           </button>

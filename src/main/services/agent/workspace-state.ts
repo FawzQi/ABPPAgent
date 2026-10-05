@@ -63,18 +63,6 @@ const forFiles = (sessionId: string) => {
   if (!m) known.set(sessionId, (m = new Map()))
   return m
 }
-
-/** Record that the model now holds the full current content of `abs`. Returns true if it already did. */
-export function markKnown(sessionId: string, abs: string): boolean {
-  const info = fileInfo(abs)
-  if (!info) return false
-  const files = forFiles(sessionId)
-  const prev = files.get(abs)
-  if (prev?.sha === info.sha) return true
-  files.set(abs, { sha: info.sha, rereads: 0 })
-  return false
-}
-
 /** Forget a file (after we write it) so the next read is treated as fresh. */
 export function forget(sessionId: string, abs: string): void {
   forFiles(sessionId).delete(abs)

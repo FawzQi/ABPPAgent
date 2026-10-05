@@ -11,8 +11,8 @@ export const DiffViewer: React.FC = () => {
   const customStyles = {
     variables: {
       dark: {
-        diffViewerBackground: '#0b1120',
-        diffViewerColor: '#cbd5e1',
+        diffViewerBackground: '#16181d',
+        diffViewerColor: '#e6e8eb',
         addedBackground: '#064e3b33',
         addedColor: '#a7f3d0',
         removedBackground: '#88133733',
@@ -21,10 +21,10 @@ export const DiffViewer: React.FC = () => {
         wordRemovedBackground: '#be123c55',
         addedGutterBackground: '#064e3b44',
         removedGutterBackground: '#88133744',
-        gutterBackground: '#0f172a',
-        gutterBackgroundDark: '#020617',
-        highlightBackground: '#1e293b',
-        highlightGutterBackground: '#1e293b',
+        gutterBackground: '#1e2127',
+        gutterBackgroundDark: '#16181d',
+        highlightBackground: '#2a2f38',
+        highlightGutterBackground: '#2a2f38',
       },
     },
     line: {
@@ -61,17 +61,17 @@ export const DiffViewer: React.FC = () => {
     const modified = selectedDiff.content?.modified || ''
 
     return (
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-slate-950">
-        <div className="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs font-mono text-slate-300">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#16181d]">
+        <div className="px-3 py-1.5 bg-[#16181d] border-b border-[#2c3038] flex items-center justify-between text-xs font-mono text-slate-300">
           <div className="flex items-center gap-2 truncate">
             <span className="font-semibold truncate">{selectedDiff.path}</span>
-            <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
+            <span className="text-[10px] bg-[#1e2127] text-slate-400 border border-[#2c3038] px-1.5 py-0.5 rounded">
               {selectedDiff.staged ? 'Staged (HEAD ↔ Index)' : 'Unstaged (Index ↔ Working Tree)'}
             </span>
           </div>
           <button
             onClick={() => setSelectedDiff(null)}
-            className="p-0.5 text-slate-400 hover:text-white rounded cursor-pointer"
+            className="p-0.5 text-slate-400 hover:text-white rounded cursor-pointer hover:bg-[#2a2f38]"
             title="Close diff"
           >
             <X size={14} />
@@ -93,12 +93,12 @@ export const DiffViewer: React.FC = () => {
   // Case 2: Session Modified File is selected
   if (selectedFile) {
     return (
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-slate-950">
-        <div className="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs font-mono text-slate-300">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#16181d]">
+        <div className="px-3 py-1.5 bg-[#16181d] border-b border-[#2c3038] flex items-center justify-between text-xs font-mono text-slate-300">
           <span className="truncate">{selectedFile.path}</span>
           <button
             onClick={() => setSelectedFile(null)}
-            className="p-0.5 text-slate-400 hover:text-white rounded cursor-pointer"
+            className="p-0.5 text-slate-400 hover:text-white rounded cursor-pointer hover:bg-[#2a2f38]"
             title="Close diff"
           >
             <X size={14} />

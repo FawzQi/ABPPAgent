@@ -15,5 +15,4 @@ export interface AiProvider {
   keyUrl: string
   models: string[]
   complete(input: CompleteInput): Promise<string>
-  listModels?(apiKey: string): Promise<string[]>
 }

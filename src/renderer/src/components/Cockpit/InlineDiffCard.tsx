@@ -20,12 +20,12 @@ export const InlineDiffCard: React.FC<InlineDiffCardProps> = ({
   onReject,
 }) => {
   return (
-    <div className="rounded border border-slate-800 bg-slate-900/90 my-2 overflow-hidden text-xs">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-slate-950 border-b border-slate-800">
+    <div className="rounded border border-[#2c3038] bg-[#1e2127] my-2 overflow-hidden text-xs">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#16181d] border-b border-[#2c3038]">
         <div className="flex items-center gap-2 truncate">
           <FileEdit size={13} className="text-amber-400 shrink-0" />
           <span className="font-mono text-slate-200 truncate">{filePath}</span>
-          <span className="text-slate-500 font-mono">({toolName})</span>
+          <span className="text-slate-400 font-mono">({toolName})</span>
         </div>
 
         {diff && (
@@ -37,12 +37,12 @@ export const InlineDiffCard: React.FC<InlineDiffCardProps> = ({
       </div>
 
       {diff && (
-        <div className="p-2 font-mono text-[11px] max-h-48 overflow-y-auto bg-slate-950/70 select-text border-b border-slate-800/60">
+        <div className="p-2 font-mono text-[11px] max-h-48 overflow-y-auto bg-[#16181d] select-text border-b border-[#2c3038]">
           {diff.newContent ? (
             <div className="space-y-0.5">
               {diff.newContent.split('\n').slice(0, 30).map((line, idx) => (
                 <div key={idx} className="text-emerald-300/90 bg-emerald-950/20 px-1 rounded flex">
-                  <span className="text-slate-600 w-6 shrink-0 select-none">{idx + 1}</span>
+                  <span className="text-slate-500 w-6 shrink-0 select-none">{idx + 1}</span>
                   <span className="truncate">{line}</span>
                 </div>
               ))}

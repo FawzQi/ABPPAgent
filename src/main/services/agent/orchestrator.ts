@@ -10,7 +10,7 @@ import { FilesystemTools } from '../tools/filesystem'
 import { DirectoryExplorer } from '../tools/explorer'
 import { CustomToolsService, getExtendedEnv } from '../tools/custom-tools'
 import { generateCodebaseContext } from './codebase-context'
-import { validateCall, checkReread, fileInfo, forget, markKnown, typecheck } from './workspace-state'
+import { validateCall, checkReread, fileInfo, forget, typecheck } from './workspace-state'
 
 export interface OrchestratorCallbacks {
   onTimelineUpdate: (item: TimelineItem) => void

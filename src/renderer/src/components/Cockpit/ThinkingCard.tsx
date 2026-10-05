@@ -10,15 +10,15 @@ export const ThinkingCard: React.FC<ThinkingCardProps> = ({ thinking }) => {
   const [isExpanded, setIsExpanded] = useState(false)
 
   return (
-    <div className="rounded border border-indigo-900/40 bg-indigo-950/20 my-2 overflow-hidden text-xs">
+    <div className="rounded border border-[#2c3038] bg-[#1e2127] my-2 overflow-hidden text-xs">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between px-3 py-1.5 bg-indigo-950/40 hover:bg-indigo-950/60 text-indigo-300 font-medium transition cursor-pointer select-none"
+        className="w-full flex items-center justify-between px-3 py-1.5 bg-[#16181d] hover:bg-[#2a2f38] text-sky-300 font-medium transition cursor-pointer select-none"
       >
         <div className="flex items-center gap-1.5">
-          <Brain size={13} className="text-indigo-400" />
+          <Brain size={13} className="text-sky-400" />
           <span>Thought Process</span>
-          <span className="text-indigo-400/60 font-normal">
+          <span className="text-slate-400 font-normal">
             ({thinking.content.length} chars)
           </span>
         </div>
@@ -26,7 +26,7 @@ export const ThinkingCard: React.FC<ThinkingCardProps> = ({ thinking }) => {
       </button>
 
       {isExpanded && (
-        <div className="p-3 text-slate-300 font-mono text-[11px] leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto border-t border-indigo-900/30 bg-slate-950/60">
+        <div className="p-3 text-slate-300 font-mono text-[11px] leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto border-t border-[#2c3038] bg-[#16181d]">
           {thinking.content}
         </div>
       )}

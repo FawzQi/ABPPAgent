@@ -131,9 +131,9 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
     }
 
     return (
-      <div className="rounded border border-indigo-800 bg-indigo-950/30 p-3 my-2 text-xs transition-all">
-        <div className="flex items-center gap-2 text-indigo-300 font-semibold mb-2">
-          <HelpCircle size={15} className="text-indigo-400" />
+      <div className="rounded border border-[#2c3038] bg-[#1e2127] p-3 my-2 text-xs transition-all">
+        <div className="flex items-center gap-2 text-sky-300 font-semibold mb-2">
+          <HelpCircle size={15} className="text-sky-400" />
           <span>{question}</span>
         </div>
 
@@ -143,7 +143,7 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
               <button
                 key={i}
                 onClick={() => handleSelectOption(opt)}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded transition cursor-pointer font-medium active:scale-95"
+                className="bg-sky-600 hover:bg-sky-500 text-white px-3 py-1 rounded transition cursor-pointer font-medium active:scale-95"
               >
                 {opt}
               </button>
@@ -162,12 +162,12 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
               }
             }}
             placeholder="Type your response..."
-            className="flex-1 bg-slate-900 border border-slate-700 rounded px-2.5 py-1 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            className="flex-1 bg-[#16181d] border border-[#2c3038] rounded px-2.5 py-1 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500"
           />
           <button
             onClick={handleCustomSubmit}
             disabled={!customInput.trim()}
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-3 py-1 rounded transition cursor-pointer font-medium active:scale-95"
+            className="bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white px-3 py-1 rounded transition cursor-pointer font-medium active:scale-95"
           >
             Reply
           </button>
@@ -178,15 +178,15 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
 
   // 4. Default inspection tool (read_file, list_directory)
   return (
-    <div className="rounded border border-slate-800 bg-slate-900/80 my-2 overflow-hidden text-xs">
+    <div className="rounded border border-[#2c3038] bg-[#1e2127] my-2 overflow-hidden text-xs">
       <div
         onClick={() => setIsOutputExpanded(!isOutputExpanded)}
-        className="flex items-center justify-between px-3 py-1.5 bg-slate-950/80 hover:bg-slate-950 cursor-pointer select-none border-b border-slate-800/60"
+        className="flex items-center justify-between px-3 py-1.5 bg-[#16181d] hover:bg-[#20242c] cursor-pointer select-none border-b border-[#2c3038]"
       >
         <div className="flex items-center gap-2 truncate">
           <Wrench size={13} className="text-slate-400 shrink-0" />
           <span className="font-semibold text-slate-200">{name}</span>
-          <span className="text-slate-500 font-mono truncate">
+          <span className="text-slate-400 font-mono truncate">
             {args.AbsolutePath || args.DirectoryPath || JSON.stringify(args)}
           </span>
         </div>
@@ -203,7 +203,7 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
               </span>
             )
           ) : (
-            <span className="text-blue-400 flex items-center gap-1 text-[11px]">
+            <span className="text-sky-400 flex items-center gap-1 text-[11px]">
               <Clock size={12} className="animate-spin" /> In Progress
             </span>
           )}
@@ -212,7 +212,7 @@ export const ToolCard: React.FC<ToolCardProps> = ({ item }) => {
       </div>
 
       {isOutputExpanded && result && (
-        <div className="p-3 bg-slate-950/90 text-slate-300 font-mono text-[11px] whitespace-pre-wrap max-h-60 overflow-y-auto select-text leading-relaxed">
+        <div className="p-3 bg-[#16181d] text-slate-300 font-mono text-[11px] whitespace-pre-wrap max-h-60 overflow-y-auto select-text leading-relaxed">
           {result.output}
         </div>
       )}

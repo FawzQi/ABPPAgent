@@ -30,12 +30,12 @@ export const WorkspaceTree: React.FC = () => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/60">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[#2c3038]">
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Workspace Files</span>
         <button
           onClick={loadTree}
           disabled={isLoading}
-          className="text-slate-500 hover:text-slate-300 p-0.5 rounded transition"
+          className="text-slate-500 hover:text-slate-300 p-0.5 rounded transition hover:bg-[#2a2f38]"
           title="Refresh Workspace Files"
         >
           <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
@@ -49,7 +49,7 @@ export const WorkspaceTree: React.FC = () => {
           tree.map((entry) => (
             <div
               key={entry.path}
-              className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 truncate select-text cursor-default"
+              className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-slate-400 hover:bg-[#1e2127] hover:text-slate-200 truncate select-text cursor-default"
               title={entry.path}
             >
               {entry.isDir ? (

@@ -19,29 +19,6 @@ export function makeOpenAiCompatibleProvider(
     label: options.label,
     keyUrl: options.keyUrl,
     models: options.models,
-    async listModels(apiKey: string): Promise<string[]> {
-      const modelsUrl = options.baseUrl.replace(/\/chat\/completions\/?$/, '/models')
-      let response: Response
-      try {
-        response = await httpFetch(modelsUrl, {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            ...(options.extraHeaders ?? {}),
-          },
-        })
-      } catch (error) {
-        throw new Error(describeFetchError(options.label, error))
-      }
-      if (!response.ok) {
-        const detail = await response.text().catch(() => '')
-        throw new Error(`${options.label} model list returned ${response.status}: ${detail.slice(0, 200) || response.statusText}`)
-      }
-      const json = (await response.json()) as { data?: Array<{ id?: string }> }
-      return (json.data ?? [])
-        .map((m) => m.id)
-        .filter((id): id is string => typeof id === 'string' && id !== '')
-        .sort()
-    },
     async complete(input: CompleteInput): Promise<string> {
       const body = {
         model: input.model,

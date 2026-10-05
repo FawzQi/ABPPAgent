@@ -57,14 +57,14 @@ export const Composer: React.FC = () => {
   const currentTarget = targets.find((t) => t.id === activeSession?.targetId) || targets[0]
 
   return (
-    <div className="border-t border-slate-800 bg-slate-900/60 p-3">
+    <div className="border-t border-[#2c3038] bg-[#16181d] p-3">
       {/* Quick Action Pills & Model Selector */}
       <div className="flex items-center gap-2 mb-2 overflow-x-visible text-[11px]">
         {/* Model Selector Dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 font-medium px-2 py-0.5 rounded cursor-pointer transition border border-indigo-500/40 select-none"
+            className="flex items-center gap-1.5 bg-[#1e2127] hover:bg-[#2a2f38] text-sky-300 font-medium px-2 py-0.5 rounded cursor-pointer transition border border-sky-500/40 select-none"
             title="Switch Web Chat LLM (ChatGPT, Gemini, DeepSeek)"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
@@ -73,7 +73,7 @@ export const Composer: React.FC = () => {
           </button>
 
           {modelDropdownOpen && (
-            <div className="absolute bottom-full left-0 mb-1.5 w-44 bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-1 z-50 space-y-0.5 animate-in fade-in duration-100">
+            <div className="absolute bottom-full left-0 mb-1.5 w-44 bg-[#1e2127] border border-[#2c3038] rounded-lg shadow-xl p-1 z-50 space-y-0.5 animate-in fade-in duration-100">
               <div className="text-[10px] font-semibold text-slate-400 px-2 py-1 uppercase tracking-wider">
                 Select Model
               </div>
@@ -88,12 +88,12 @@ export const Composer: React.FC = () => {
                     }}
                     className={`w-full flex items-center justify-between px-2 py-1 rounded text-left text-xs transition cursor-pointer ${
                       isSelected
-                        ? 'bg-indigo-600/25 text-indigo-300 font-semibold border border-indigo-500/30'
-                        : 'text-slate-300 hover:bg-slate-800'
+                        ? 'bg-sky-600/25 text-sky-300 font-semibold border border-sky-500/30'
+                        : 'text-slate-300 hover:bg-[#2a2f38]'
                     }`}
                   >
                     <span>{t.label}</span>
-                    {isSelected && <Check size={11} className="text-indigo-400" />}
+                    {isSelected && <Check size={11} className="text-sky-400" />}
                   </button>
                 )
               })}
@@ -103,16 +103,16 @@ export const Composer: React.FC = () => {
 
         <button
           onClick={() => insertSnippet('/plan')}
-          className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded cursor-pointer transition border border-slate-700/50"
+          className="flex items-center gap-1 bg-[#1e2127] hover:bg-[#2a2f38] text-slate-300 px-2 py-0.5 rounded cursor-pointer transition border border-[#2c3038]"
         >
           <Sparkles size={11} className="text-amber-400" />
           <span>/plan</span>
         </button>
         <button
           onClick={() => insertSnippet('@file')}
-          className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded cursor-pointer transition border border-slate-700/50"
+          className="flex items-center gap-1 bg-[#1e2127] hover:bg-[#2a2f38] text-slate-300 px-2 py-0.5 rounded cursor-pointer transition border border-[#2c3038]"
         >
-          <FileCode size={11} className="text-indigo-400" />
+          <FileCode size={11} className="text-sky-400" />
           <span>@file</span>
         </button>
         <span className="text-slate-500 text-[10px] ml-auto">
@@ -120,7 +120,7 @@ export const Composer: React.FC = () => {
         </span>
       </div>
 
-      <div className="relative flex items-end gap-2 bg-slate-950 border border-slate-700/80 rounded-lg p-2 focus-within:border-indigo-500 transition">
+      <div className="relative flex items-end gap-2 bg-[#16181d] border border-[#2c3038] rounded-lg p-2 focus-within:border-sky-500 transition">
         <textarea
           ref={textareaRef}
           value={text}
@@ -149,7 +149,7 @@ export const Composer: React.FC = () => {
           <button
             onClick={handleSubmit}
             disabled={!text.trim()}
-            className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white px-3 py-1.5 rounded text-xs font-medium cursor-pointer transition shrink-0"
+            className="flex items-center gap-1 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 disabled:hover:bg-sky-600 text-white px-3 py-1.5 rounded text-xs font-medium cursor-pointer transition shrink-0"
           >
             <Send size={13} />
             <span>Send</span>
