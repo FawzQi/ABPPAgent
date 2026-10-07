@@ -12,7 +12,6 @@ import {
   Wrench,
 } from 'lucide-react'
 import { useSessionStore } from './stores/session-store'
-import { useTargetStore } from './stores/target-store'
 import { useToolsStore } from './stores/tools-store'
 import { SessionList } from './components/Sidebar/SessionList'
 import { TargetSelector } from './components/Sidebar/TargetSelector'
@@ -25,7 +24,6 @@ import { CustomToolsModal } from './components/Tools/CustomToolsModal'
 
 export const App: React.FC = () => {
   const { init, activeSession, workspacePath, setWorkspacePath, toggleAutoApprove, abortAgent } = useSessionStore()
-  const { targets } = useTargetStore()
   const { openModal: openToolsModal } = useToolsStore()
 
   const [leftOpen, setLeftOpen] = useState(true)
@@ -46,7 +44,6 @@ export const App: React.FC = () => {
     }
   }
 
-  const activeTarget = targets.find((t) => t.id === activeSession?.targetId)
   const isRunning = activeSession?.status === 'running'
 
   return (
@@ -67,9 +64,6 @@ export const App: React.FC = () => {
               <Sparkles size={12} />
             </div>
             <span className="font-semibold text-xs tracking-tight text-slate-100">ABPPAgent</span>
-            <span className="text-[10px] bg-sky-950/80 text-sky-400 border border-sky-800/60 px-1.5 py-0.2 rounded font-mono">
-              OpenCode UI
-            </span>
           </div>
 
           <div className="h-4 w-px bg-[#2c3038]" />
@@ -86,17 +80,6 @@ export const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Target Model Indicator */}
-          {activeTarget && (
-            <div className="flex items-center gap-1.5 text-xs bg-[#1e2127] border border-[#2c3038] px-2.5 py-1 rounded">
-              <span className="text-slate-400 font-medium">Model:</span>
-              <span className="text-sky-300 font-medium">{activeTarget.label}</span>
-              {isRunning && (
-                <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse ml-1" title="Generating..." />
-              )}
-            </div>
-          )}
-
           {/* Custom Tools & Pacing Modal */}
           <button
             onClick={openToolsModal}

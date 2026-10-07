@@ -1,16 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Send, Square, Sparkles, ChevronDown, Check } from 'lucide-react'
+import { Send, Square, Sparkles } from 'lucide-react'
 import { useSessionStore } from '../../stores/session-store'
-import { useTargetStore } from '../../stores/target-store'
 
 export const Composer: React.FC = () => {
   const [text, setText] = useState('')
-  const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
   const [suggestEnabled, setSuggestEnabled] = useState(true)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  const { activeSession, setTargetId, sendUserMessage, abortAgent } = useSessionStore()
-  const { targets } = useTargetStore()
+  const { activeSession, sendUserMessage, abortAgent } = useSessionStore()
 
   const isRunning = activeSession?.status === 'running'
 
@@ -37,17 +33,6 @@ export const Composer: React.FC = () => {
     }
   }
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setModelDropdownOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
   const handleSubmit = async () => {
     if (!text.trim() || isRunning) return
     const msg = text.trim()
@@ -73,54 +58,11 @@ export const Composer: React.FC = () => {
     }
   }
 
-  const currentTarget = targets.find((t) => t.id === activeSession?.targetId) || targets[0]
-
   return (
     <div className="border-t border-[#2c3038] bg-[#16181d] p-3">
-      {/* Quick Action Pills & Model Selector */}
+      {/* Quick Action Pills */}
       <div className="flex items-center gap-2 mb-2 overflow-x-visible text-[11px]">
-        {/* Model Selector Dropdown */}
-        <div className="relative" ref={dropdownRef}>
-          <button
-            onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-            className="flex items-center gap-1.5 bg-[#1e2127] hover:bg-[#2a2f38] text-sky-300 font-medium px-2 py-0.5 rounded cursor-pointer transition border border-sky-500/40 select-none"
-            title="Switch Web Chat LLM (ChatGPT, Gemini, DeepSeek)"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>{currentTarget?.label || 'DeepSeek'}</span>
-            <ChevronDown size={11} className="text-slate-400" />
-          </button>
-
-          {modelDropdownOpen && (
-            <div className="absolute bottom-full left-0 mb-1.5 w-44 bg-[#1e2127] border border-[#2c3038] rounded-lg shadow-xl p-1 z-50 space-y-0.5 animate-in fade-in duration-100">
-              <div className="text-[10px] font-semibold text-slate-400 px-2 py-1 uppercase tracking-wider">
-                Select Model
-              </div>
-              {targets.map((t) => {
-                const isSelected = activeSession?.targetId === t.id
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => {
-                      setTargetId(t.id)
-                      setModelDropdownOpen(false)
-                    }}
-                    className={`w-full flex items-center justify-between px-2 py-1 rounded text-left text-xs transition cursor-pointer ${
-                      isSelected
-                        ? 'bg-sky-600/25 text-sky-300 font-semibold border border-sky-500/30'
-                        : 'text-slate-300 hover:bg-[#2a2f38]'
-                    }`}
-                  >
-                    <span>{t.label}</span>
-                    {isSelected && <Check size={11} className="text-sky-400" />}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* File Suggestion Toggle Beside Model Selector */}
+        {/* File Suggestion Toggle */}
         <button
           onClick={handleToggleSuggest}
           className={`flex items-center gap-1.5 px-2 py-0.5 rounded cursor-pointer transition border text-[11px] select-none ${

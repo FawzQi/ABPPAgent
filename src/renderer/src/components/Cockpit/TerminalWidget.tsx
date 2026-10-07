@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useMemo } from 'react'
 import { Terminal, XCircle, CheckCircle, Clock } from 'lucide-react'
 
 interface TerminalWidgetProps {
@@ -26,10 +26,10 @@ export const TerminalWidget: React.FC<TerminalWidgetProps> = ({
     }
   }, [output])
 
-  // Simple ANSI strip helper for clean readability
-  const cleanAnsi = (text: string) => {
-    return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-  }
+  // Memoize ANSI strip helper to avoid re-evaluating regex during unrelated parent re-renders
+  const cleanedOutput = useMemo(() => {
+    return output ? output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') : ''
+  }, [output])
 
   return (
     <div className="rounded border border-[#2c3038] bg-[#1e2127] font-mono text-xs overflow-hidden my-2">
@@ -75,7 +75,7 @@ export const TerminalWidget: React.FC<TerminalWidgetProps> = ({
         ref={outputRef}
         className="p-3 text-[#e6e8eb] whitespace-pre-wrap max-h-64 overflow-y-auto font-mono text-[11px] leading-relaxed select-text bg-[#16181d]"
       >
-        {output ? cleanAnsi(output) : <span className="text-slate-500 italic">Waiting for terminal output...</span>}
+        {output ? cleanedOutput : <span className="text-slate-500 italic">Waiting for terminal output...</span>}
       </div>
     </div>
   )

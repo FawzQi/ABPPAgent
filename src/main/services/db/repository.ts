@@ -1,11 +1,52 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import type { Session, TimelineItem, WorkspaceFileChange } from '@shared/types'
+import type { Session, TimelineItem, WorkspaceFileChange, AgentDelaysConfig, CustomToolsConfig } from '@shared/types'
+import { DEFAULT_AGENT_DELAYS_CONFIG, DEFAULT_CUSTOM_TOOLS_CONFIG } from '@shared/types'
 import { getStorageDir, readJsonSafe, writeJsonAtomic } from './database'
+
+export interface SessionDefaults {
+  autoApprove: boolean
+  delays: AgentDelaysConfig
+  customTools: CustomToolsConfig
+}
 
 export class SessionRepository {
   private static getSessionsFilePath(): string {
     return path.join(getStorageDir(), 'sessions.json')
+  }
+
+  private static getSessionDefaultsFilePath(): string {
+    return path.join(getStorageDir(), 'session-defaults.json')
+  }
+
+  static getSessionDefaults(): SessionDefaults {
+    return readJsonSafe<SessionDefaults>(this.getSessionDefaultsFilePath(), {
+      autoApprove: false,
+      delays: { ...DEFAULT_AGENT_DELAYS_CONFIG },
+      customTools: { ...DEFAULT_CUSTOM_TOOLS_CONFIG },
+    })
+  }
+
+  static saveSessionDefaults(defaults: Partial<SessionDefaults>): SessionDefaults {
+    const current = this.getSessionDefaults()
+    const updated: SessionDefaults = {
+      autoApprove: defaults.autoApprove !== undefined ? defaults.autoApprove : current.autoApprove,
+      delays: defaults.delays ? { ...current.delays, ...defaults.delays } : current.delays,
+      customTools: defaults.customTools ? { ...current.customTools, ...defaults.customTools } : current.customTools,
+    }
+    writeJsonAtomic(this.getSessionDefaultsFilePath(), updated)
+    return updated
+  }
+
+  static updateAllSessions(updates: Partial<Session>): void {
+    const list = this.getSessions()
+    if (list.length === 0) return
+    const updatedList = list.map((session) => ({
+      ...session,
+      ...updates,
+      updatedAt: Date.now(),
+    }))
+    writeJsonAtomic(this.getSessionsFilePath(), updatedList)
   }
 
   private static getTimelineFilePath(sessionId: string): string {

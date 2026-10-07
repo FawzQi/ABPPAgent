@@ -30,6 +30,17 @@ function formatErrorPrompt(problem?: string): string {
   return `# Tool Call Format Error\n${problem ?? 'Your previous message could not be parsed as a tool call.'}\n\nReply with a JSON object (or JSON array for batched tool calls):\n\`\`\`json\n${JSON_FORMAT_EXAMPLE}\n\`\`\`\nTo end the task: \`{"thought": "...", "tool_call_name": "finish", "parameter": {"summary": "..."}}\``
 }
 
+export function computeCooldownDuration(
+  baseCooldownMs: number = 3000,
+  minRandomMs: number = 0,
+  maxRandomMs: number = 0
+): number {
+  const min = Math.max(0, minRandomMs)
+  const max = Math.max(min, maxRandomMs)
+  const randomDelay = max > min ? Math.floor(Math.random() * (max - min + 1)) + min : min
+  return baseCooldownMs + randomDelay
+}
+
 export class AgentDoubtDetector {
   private static DOUBT_PATTERNS = [
     /tools?\s+(?:are|is)\s+no\s+longer\s+available/i,
@@ -219,6 +230,8 @@ export class AgentOrchestrator {
 
     const cooldownTimerMs = session.delays?.cooldownTimerMs ?? session.delays?.sendPromptDelayMs ?? 3000
     const sendDelayMs = session.delays?.sendDelayMs ?? session.delays?.interactionDelayMs ?? 1000
+    const sendRandomMinMs = session.delays?.sendRandomDelayMinMs ?? 50
+    const sendRandomMaxMs = session.delays?.sendRandomDelayMaxMs ?? 150
     const toolExecutionDelayMs = session.delays?.toolExecutionDelayMs ?? 150
 
     let cooldownExpiresAt = 0
@@ -234,11 +247,22 @@ export class AgentOrchestrator {
 
       // 1. Deliver prompt to web chat (with mandatory tool JSON rule at the bottom) and wait for scraped response
       const promptToDeliver = appendToolJsonFormatRule(currentPrompt)
-      const sendResult = await sendToWebChat(session.targetId, promptToDeliver, sendDelayMs)
+      const sendResult = await sendToWebChat(
+        session.targetId,
+        promptToDeliver,
+        sendDelayMs,
+        sendRandomMinMs,
+        sendRandomMaxMs
+      )
       if (signal.aborted) break
 
       // Mark the cooldown timer start IMMEDIATELY upon receiving response from LLM chat
-      cooldownExpiresAt = Date.now() + cooldownTimerMs
+      const cooldownDuration = computeCooldownDuration(
+        cooldownTimerMs,
+        session.delays?.cooldownRandomDelayMinMs,
+        session.delays?.cooldownRandomDelayMaxMs
+      )
+      cooldownExpiresAt = Date.now() + cooldownDuration
 
       if (!sendResult.ok || !sendResult.text) {
         throw new Error(sendResult.error || 'Received empty response from web chat platform.')
@@ -538,11 +562,12 @@ export class AgentOrchestrator {
           : path.join(session.workspacePath, call.arguments.Cwd)
         : session.workspacePath
 
+      const MAX_STREAM_CHARS = 100_000
       let streamAcc = ''
       result = await this.runner.run(call.id, cmd, {
         cwd,
         onChunk: (chunk) => {
-          streamAcc += chunk
+          streamAcc = (streamAcc + chunk).slice(-MAX_STREAM_CHARS)
           this.callbacks?.onTerminalChunk({ toolCallId: call.id, chunk })
         },
       })

@@ -16,6 +16,7 @@ import * as GitService from './services/git/git-service'
 import { getFileSuggestionSettings, saveFileSuggestionSettings } from './services/agent/ai-settings'
 import { listProviders } from './services/agent/ai-providers'
 import { getBasePrompt, saveBasePrompt, resetBasePrompt } from './services/agent/base-prompt'
+import { clearSessionState } from './services/agent/workspace-state'
 
 export function registerIpcHandlers(): void {
   // Broadcast helper
@@ -53,6 +54,7 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.CREATE_SESSION, (_e, targetId: WebChatTargetId, workspacePath: string, title?: string) => {
+    const defaults = SessionRepository.getSessionDefaults()
     const session: Session = {
       id: `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       title: title || `Session ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
@@ -60,7 +62,9 @@ export function registerIpcHandlers(): void {
       updatedAt: Date.now(),
       targetId,
       workspacePath,
-      autoApprove: false,
+      autoApprove: defaults.autoApprove,
+      delays: defaults.delays,
+      customTools: defaults.customTools,
       status: 'idle',
     }
     SessionRepository.saveSession(session)
@@ -75,6 +79,7 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.DELETE_SESSION, (_e, sessionId: string) => {
+    clearSessionState(sessionId)
     return SessionRepository.deleteSession(sessionId)
   })
 
@@ -83,6 +88,22 @@ export function registerIpcHandlers(): void {
     if (!session) throw new Error(`Session not found: ${sessionId}`)
     const updated = { ...session, ...updates, updatedAt: Date.now() }
     SessionRepository.saveSession(updated)
+
+    const defaultsUpdate: any = {}
+    const syncUpdates: Partial<Session> = {}
+    if (updates.autoApprove !== undefined) {
+      defaultsUpdate.autoApprove = updates.autoApprove
+      syncUpdates.autoApprove = updates.autoApprove
+    }
+    if (updates.delays !== undefined) {
+      defaultsUpdate.delays = updates.delays
+      syncUpdates.delays = updates.delays
+    }
+    if (Object.keys(defaultsUpdate).length > 0) {
+      SessionRepository.saveSessionDefaults(defaultsUpdate)
+      SessionRepository.updateAllSessions(syncUpdates)
+    }
+
     return updated
   })
 
@@ -202,13 +223,17 @@ export function registerIpcHandlers(): void {
     session.customTools = config
     session.updatedAt = Date.now()
     SessionRepository.saveSession(session)
+
+    SessionRepository.saveSessionDefaults({ customTools: config })
+    SessionRepository.updateAllSessions({ customTools: config })
+
     broadcast(IPC_CHANNELS.EVENT_SESSION_UPDATE, session)
     return config
   })
 
   ipcMain.handle(IPC_CHANNELS.GET_CUSTOM_TOOLS, async (_e, sessionId: string) => {
     const session = SessionRepository.getSessionById(sessionId)
-    return session?.customTools || DEFAULT_CUSTOM_TOOLS_CONFIG
+    return session?.customTools || SessionRepository.getSessionDefaults().customTools
   })
 
   // 7. File Suggestion & AI Settings

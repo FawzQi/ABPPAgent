@@ -1,4 +1,4 @@
-export type WebChatTargetId = 'deepseek' | 'chatgpt' | 'claude' | 'gemini' | 'kimi' | 'qwen'
+export type WebChatTargetId = 'deepseek' | 'chatgpt' | 'gemini'
 
 export type WebChatStatus = 'idle' | 'working' | 'paused' | 'error' | 'disconnected'
 
@@ -129,7 +129,11 @@ export interface TimelineItem {
 
 export interface AgentDelaysConfig {
   cooldownTimerMs?: number // Minimum timer after receiving LLM response before sending next prompt (default: 3000)
-  sendDelayMs?: number // Delay after typing into input before clicking send (default: 1000, with 50-150ms random jitter)
+  cooldownRandomDelayMinMs?: number // Minimum random delay added to cooldown (default: 0)
+  cooldownRandomDelayMaxMs?: number // Maximum random delay added to cooldown (default: 1000)
+  sendDelayMs?: number // Delay after typing into input before clicking send (default: 1000)
+  sendRandomDelayMinMs?: number // Minimum random delay added to send delay (default: 50)
+  sendRandomDelayMaxMs?: number // Maximum random delay added to send delay (default: 150)
   toolExecutionDelayMs?: number // Delay between sequential tool executions (default: 150)
   sendPromptDelayMs?: number // Backward compatibility alias
   interactionDelayMs?: number // Backward compatibility alias
@@ -137,7 +141,11 @@ export interface AgentDelaysConfig {
 
 export const DEFAULT_AGENT_DELAYS_CONFIG: AgentDelaysConfig = {
   cooldownTimerMs: 3000,
+  cooldownRandomDelayMinMs: 0,
+  cooldownRandomDelayMaxMs: 1000,
   sendDelayMs: 1000,
+  sendRandomDelayMinMs: 50,
+  sendRandomDelayMaxMs: 150,
   toolExecutionDelayMs: 150,
   sendPromptDelayMs: 3000,
   interactionDelayMs: 1000,

@@ -32,6 +32,8 @@ interface SessionStore {
   handleTerminalChunk: (toolCallId: string, chunk: string) => void
 }
 
+let unsubscribers: Array<() => void> = []
+
 export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [],
   activeSession: null,
@@ -46,6 +48,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   init: async () => {
     if (!window.agentApi) return
+
+    // Clean up any prior subscriptions to prevent listener leaks on remount
+    for (const unsub of unsubscribers) {
+      unsub()
+    }
+    unsubscribers = []
+
     const sessions = await window.agentApi.getSessions()
     set({ sessions })
 
@@ -55,10 +64,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       await get().createSession()
     }
 
-    // Subscribe to IPC events
-    window.agentApi.onTimelineUpdate((item) => get().handleTimelineUpdate(item))
-    window.agentApi.onSessionUpdate((session) => get().handleSessionUpdate(session))
-    window.agentApi.onTerminalChunk(({ toolCallId, chunk }) => get().handleTerminalChunk(toolCallId, chunk))
+    // Subscribe to IPC events cleanly
+    unsubscribers.push(
+      window.agentApi.onTimelineUpdate((item) => get().handleTimelineUpdate(item)),
+      window.agentApi.onSessionUpdate((session) => get().handleSessionUpdate(session)),
+      window.agentApi.onTerminalChunk(({ toolCallId, chunk }) => get().handleTerminalChunk(toolCallId, chunk)),
+    )
   },
 
   createSession: async (targetId) => {
@@ -82,7 +93,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const { activeSession, sessions } = get()
     if (!activeSession || !window.agentApi) return
     const updated = await window.agentApi.updateSessionSettings(activeSession.id, { delays })
-    const updatedSessions = sessions.map((s) => (s.id === updated.id ? updated : s))
+    const updatedSessions = sessions.map((s) => ({ ...s, delays }))
     set({ activeSession: updated, sessions: updatedSessions })
   },
 
@@ -116,7 +127,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (!activeSession || !window.agentApi) return
     const newAuto = !activeSession.autoApprove
     const updated = await window.agentApi.updateSessionSettings(activeSession.id, { autoApprove: newAuto })
-    const updatedSessions = sessions.map((s) => (s.id === updated.id ? updated : s))
+    const updatedSessions = sessions.map((s) => ({ ...s, autoApprove: newAuto }))
     set({ activeSession: updated, sessions: updatedSessions })
   },
 
@@ -173,19 +184,25 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   handleTerminalChunk: (toolCallId: string, chunk: string) => {
-    set((state) => ({
-      timeline: state.timeline.map((item) => {
+    const MAX_TERMINAL_STREAM = 100_000
+    set((state) => {
+      let changed = false
+      const timeline = state.timeline.map((item) => {
         if (item.toolCall && item.toolCall.id === toolCallId) {
+          changed = true
+          const current = item.toolCall.terminalStream || ''
           return {
             ...item,
             toolCall: {
               ...item.toolCall,
-              terminalStream: (item.toolCall.terminalStream || '') + chunk,
+              terminalStream: (current + chunk).slice(-MAX_TERMINAL_STREAM),
             },
           }
         }
         return item
-      }),
-    }))
+      })
+      if (!changed) return state
+      return { timeline }
+    })
   },
 }))

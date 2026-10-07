@@ -68,6 +68,11 @@ export function forget(sessionId: string, abs: string): void {
   forFiles(sessionId).delete(abs)
 }
 
+/** Clear all state for a session when it is deleted. */
+export function clearSessionState(sessionId: string): void {
+  known.delete(sessionId)
+}
+
 /**
  * Decide whether a full read is redundant. First redundant reread: 'warn' (allowed).
  * Further ones: 'block'. Changed or never-seen files: 'ok'.

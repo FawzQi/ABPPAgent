@@ -25,7 +25,11 @@ export const CustomToolsModal: React.FC = () => {
   const [basePromptSavedMessage, setBasePromptSavedMessage] = useState(false)
 
   const cooldownTimer = activeSession?.delays?.cooldownTimerMs ?? activeSession?.delays?.sendPromptDelayMs ?? 3000
+  const cooldownRandomMin = activeSession?.delays?.cooldownRandomDelayMinMs ?? 0
+  const cooldownRandomMax = activeSession?.delays?.cooldownRandomDelayMaxMs ?? 1000
   const sendDelay = activeSession?.delays?.sendDelayMs ?? activeSession?.delays?.interactionDelayMs ?? 1000
+  const sendRandomMin = activeSession?.delays?.sendRandomDelayMinMs ?? 50
+  const sendRandomMax = activeSession?.delays?.sendRandomDelayMaxMs ?? 150
   const toolExecutionDelay = activeSession?.delays?.toolExecutionDelayMs ?? 150
 
   useEffect(() => {
@@ -62,9 +66,45 @@ export const CustomToolsModal: React.FC = () => {
   const handleCooldownTimerChange = (val: number) => {
     updateDelays({
       cooldownTimerMs: Math.max(500, Math.min(15000, val)),
+      cooldownRandomDelayMinMs: cooldownRandomMin,
+      cooldownRandomDelayMaxMs: cooldownRandomMax,
       sendDelayMs: sendDelay,
+      sendRandomDelayMinMs: sendRandomMin,
+      sendRandomDelayMaxMs: sendRandomMax,
       toolExecutionDelayMs: toolExecutionDelay,
       sendPromptDelayMs: Math.max(500, Math.min(15000, val)),
+      interactionDelayMs: sendDelay,
+    })
+  }
+
+  const handleCooldownRandomMinChange = (val: number) => {
+    const clampedMin = Math.max(0, Math.min(10000, val))
+    const clampedMax = Math.max(clampedMin, cooldownRandomMax)
+    updateDelays({
+      cooldownTimerMs: cooldownTimer,
+      cooldownRandomDelayMinMs: clampedMin,
+      cooldownRandomDelayMaxMs: clampedMax,
+      sendDelayMs: sendDelay,
+      sendRandomDelayMinMs: sendRandomMin,
+      sendRandomDelayMaxMs: sendRandomMax,
+      toolExecutionDelayMs: toolExecutionDelay,
+      sendPromptDelayMs: cooldownTimer,
+      interactionDelayMs: sendDelay,
+    })
+  }
+
+  const handleCooldownRandomMaxChange = (val: number) => {
+    const clampedMax = Math.max(0, Math.min(10000, val))
+    const clampedMin = Math.min(clampedMax, cooldownRandomMin)
+    updateDelays({
+      cooldownTimerMs: cooldownTimer,
+      cooldownRandomDelayMinMs: clampedMin,
+      cooldownRandomDelayMaxMs: clampedMax,
+      sendDelayMs: sendDelay,
+      sendRandomDelayMinMs: sendRandomMin,
+      sendRandomDelayMaxMs: sendRandomMax,
+      toolExecutionDelayMs: toolExecutionDelay,
+      sendPromptDelayMs: cooldownTimer,
       interactionDelayMs: sendDelay,
     })
   }
@@ -72,27 +112,79 @@ export const CustomToolsModal: React.FC = () => {
   const handleSendDelayChange = (val: number) => {
     updateDelays({
       cooldownTimerMs: cooldownTimer,
+      cooldownRandomDelayMinMs: cooldownRandomMin,
+      cooldownRandomDelayMaxMs: cooldownRandomMax,
       sendDelayMs: Math.max(100, Math.min(10000, val)),
+      sendRandomDelayMinMs: sendRandomMin,
+      sendRandomDelayMaxMs: sendRandomMax,
       toolExecutionDelayMs: toolExecutionDelay,
       sendPromptDelayMs: cooldownTimer,
       interactionDelayMs: Math.max(100, Math.min(10000, val)),
     })
   }
 
+  const handleSendRandomMinChange = (val: number) => {
+    const clampedMin = Math.max(0, Math.min(5000, val))
+    const clampedMax = Math.max(clampedMin, sendRandomMax)
+    updateDelays({
+      cooldownTimerMs: cooldownTimer,
+      cooldownRandomDelayMinMs: cooldownRandomMin,
+      cooldownRandomDelayMaxMs: cooldownRandomMax,
+      sendDelayMs: sendDelay,
+      sendRandomDelayMinMs: clampedMin,
+      sendRandomDelayMaxMs: clampedMax,
+      toolExecutionDelayMs: toolExecutionDelay,
+      sendPromptDelayMs: cooldownTimer,
+      interactionDelayMs: sendDelay,
+    })
+  }
+
+  const handleSendRandomMaxChange = (val: number) => {
+    const clampedMax = Math.max(0, Math.min(5000, val))
+    const clampedMin = Math.min(clampedMax, sendRandomMin)
+    updateDelays({
+      cooldownTimerMs: cooldownTimer,
+      cooldownRandomDelayMinMs: cooldownRandomMin,
+      cooldownRandomDelayMaxMs: cooldownRandomMax,
+      sendDelayMs: sendDelay,
+      sendRandomDelayMinMs: clampedMin,
+      sendRandomDelayMaxMs: clampedMax,
+      toolExecutionDelayMs: toolExecutionDelay,
+      sendPromptDelayMs: cooldownTimer,
+      interactionDelayMs: sendDelay,
+    })
+  }
+
   const handleToolExecutionDelayChange = (val: number) => {
     updateDelays({
       cooldownTimerMs: cooldownTimer,
+      cooldownRandomDelayMinMs: cooldownRandomMin,
+      cooldownRandomDelayMaxMs: cooldownRandomMax,
       sendDelayMs: sendDelay,
+      sendRandomDelayMinMs: sendRandomMin,
+      sendRandomDelayMaxMs: sendRandomMax,
       toolExecutionDelayMs: Math.max(25, Math.min(3000, val)),
       sendPromptDelayMs: cooldownTimer,
       interactionDelayMs: sendDelay,
     })
   }
 
-  const applyPreset = (cooldownMs: number, sendMs: number, toolMs: number) => {
+  const applyPreset = (
+    cooldownMs: number,
+    randomMinMs: number,
+    randomMaxMs: number,
+    sendMs: number,
+    sendMinMs: number,
+    sendMaxMs: number,
+    toolMs: number
+  ) => {
     updateDelays({
       cooldownTimerMs: cooldownMs,
+      cooldownRandomDelayMinMs: randomMinMs,
+      cooldownRandomDelayMaxMs: randomMaxMs,
       sendDelayMs: sendMs,
+      sendRandomDelayMinMs: sendMinMs,
+      sendRandomDelayMaxMs: sendMaxMs,
       toolExecutionDelayMs: toolMs,
       sendPromptDelayMs: cooldownMs,
       interactionDelayMs: sendMs,
@@ -353,29 +445,105 @@ export const CustomToolsModal: React.FC = () => {
                   <span className="text-xs font-mono font-bold text-amber-400">
                     {(cooldownTimer / 1000).toFixed(1)}s
                   </span>
-                  <span className="text-[10px] text-slate-500 ml-1">({cooldownTimer}ms)</span>
+                  <span className="text-[10px] text-slate-500 ml-1">
+                    (+{cooldownRandomMin}-{cooldownRandomMax}ms random)
+                  </span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min="500"
-                  max="10000"
-                  step="250"
-                  value={cooldownTimer}
-                  onChange={(e) => handleCooldownTimerChange(Number(e.target.value))}
-                  className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
-                />
-                <input
-                  type="number"
-                  min="500"
-                  max="15000"
-                  step="250"
-                  value={cooldownTimer}
-                  onChange={(e) => handleCooldownTimerChange(Number(e.target.value))}
-                  className="w-20 px-2 py-1 bg-[#1e2127] border border-[#2c3038] rounded text-xs text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
-                />
+              <div>
+                <span className="text-[10px] text-slate-400 block mb-1">Base Cooldown</span>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="500"
+                    max="10000"
+                    step="250"
+                    value={cooldownTimer}
+                    onChange={(e) => handleCooldownTimerChange(Number(e.target.value))}
+                    className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
+                  />
+                  <input
+                    type="number"
+                    min="500"
+                    max="15000"
+                    step="250"
+                    value={cooldownTimer}
+                    onChange={(e) => handleCooldownTimerChange(Number(e.target.value))}
+                    className="w-20 px-2 py-1 bg-[#1e2127] border border-[#2c3038] rounded text-xs text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
+                  />
+                </div>
+              </div>
+
+              {/* Random Delay Range (Jitter) */}
+              <div className="pt-2 border-t border-[#22252c] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-medium text-slate-300">Random Delay Range (Jitter)</span>
+                    <p className="text-[10px] text-slate-500">
+                      Adds a randomized delay between Min and Max to the elapsed cooldown timer
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono text-sky-400">
+                    +{cooldownRandomMin}ms – {cooldownRandomMax}ms
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                      <span>Min Random Delay</span>
+                      <span className="font-mono text-slate-300">{cooldownRandomMin}ms</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="0"
+                        max="5000"
+                        step="100"
+                        value={cooldownRandomMin}
+                        onChange={(e) => handleCooldownRandomMinChange(Number(e.target.value))}
+                        className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="10000"
+                        step="100"
+                        value={cooldownRandomMin}
+                        onChange={(e) => handleCooldownRandomMinChange(Number(e.target.value))}
+                        className="w-16 px-1.5 py-0.5 bg-[#1e2127] border border-[#2c3038] rounded text-[11px] text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                      <span>Max Random Delay</span>
+                      <span className="font-mono text-slate-300">{cooldownRandomMax}ms</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="0"
+                        max="10000"
+                        step="100"
+                        value={cooldownRandomMax}
+                        onChange={(e) => handleCooldownRandomMaxChange(Number(e.target.value))}
+                        className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="10000"
+                        step="100"
+                        value={cooldownRandomMax}
+                        onChange={(e) => handleCooldownRandomMaxChange(Number(e.target.value))}
+                        className="w-16 px-1.5 py-0.5 bg-[#1e2127] border border-[#2c3038] rounded text-[11px] text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -387,7 +555,7 @@ export const CustomToolsModal: React.FC = () => {
                   <div>
                     <span className="text-xs font-semibold text-slate-200">Send Prompt Delay</span>
                     <p className="text-[11px] text-slate-400">
-                      Pause after typing into web chat editor before clicking send (+ 50-150ms random jitter)
+                      Pause after typing into web chat editor before clicking send (+ random jitter)
                     </p>
                   </div>
                 </div>
@@ -395,29 +563,105 @@ export const CustomToolsModal: React.FC = () => {
                   <span className="text-xs font-mono font-bold text-sky-400">
                     {(sendDelay / 1000).toFixed(1)}s
                   </span>
-                  <span className="text-[10px] text-slate-500 ml-1">(+jitter)</span>
+                  <span className="text-[10px] text-slate-500 ml-1">
+                    (+{sendRandomMin}-{sendRandomMax}ms random)
+                  </span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min="200"
-                  max="5000"
-                  step="100"
-                  value={sendDelay}
-                  onChange={(e) => handleSendDelayChange(Number(e.target.value))}
-                  className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
-                />
-                <input
-                  type="number"
-                  min="100"
-                  max="10000"
-                  step="100"
-                  value={sendDelay}
-                  onChange={(e) => handleSendDelayChange(Number(e.target.value))}
-                  className="w-20 px-2 py-1 bg-[#1e2127] border border-[#2c3038] rounded text-xs text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
-                />
+              <div>
+                <span className="text-[10px] text-slate-400 block mb-1">Base Send Delay</span>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="200"
+                    max="5000"
+                    step="100"
+                    value={sendDelay}
+                    onChange={(e) => handleSendDelayChange(Number(e.target.value))}
+                    className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
+                  />
+                  <input
+                    type="number"
+                    min="100"
+                    max="10000"
+                    step="100"
+                    value={sendDelay}
+                    onChange={(e) => handleSendDelayChange(Number(e.target.value))}
+                    className="w-20 px-2 py-1 bg-[#1e2127] border border-[#2c3038] rounded text-xs text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
+                  />
+                </div>
+              </div>
+
+              {/* Random Delay Range (Jitter) */}
+              <div className="pt-2 border-t border-[#22252c] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-medium text-slate-300">Random Delay Range (Jitter)</span>
+                    <p className="text-[10px] text-slate-500">
+                      Adds a randomized delay between Min and Max before clicking send
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono text-sky-400">
+                    +{sendRandomMin}ms – {sendRandomMax}ms
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                      <span>Min Random Delay</span>
+                      <span className="font-mono text-slate-300">{sendRandomMin}ms</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="0"
+                        max="1000"
+                        step="25"
+                        value={sendRandomMin}
+                        onChange={(e) => handleSendRandomMinChange(Number(e.target.value))}
+                        className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="5000"
+                        step="25"
+                        value={sendRandomMin}
+                        onChange={(e) => handleSendRandomMinChange(Number(e.target.value))}
+                        className="w-16 px-1.5 py-0.5 bg-[#1e2127] border border-[#2c3038] rounded text-[11px] text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                      <span>Max Random Delay</span>
+                      <span className="font-mono text-slate-300">{sendRandomMax}ms</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="0"
+                        max="2000"
+                        step="25"
+                        value={sendRandomMax}
+                        onChange={(e) => handleSendRandomMaxChange(Number(e.target.value))}
+                        className="flex-1 accent-sky-500 cursor-pointer h-1.5 bg-[#2c3038] rounded-lg"
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="5000"
+                        step="25"
+                        value={sendRandomMax}
+                        onChange={(e) => handleSendRandomMaxChange(Number(e.target.value))}
+                        className="w-16 px-1.5 py-0.5 bg-[#1e2127] border border-[#2c3038] rounded text-[11px] text-slate-200 text-right font-mono focus:outline-hidden focus:border-sky-500"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -470,50 +714,86 @@ export const CustomToolsModal: React.FC = () => {
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
-                  onClick={() => applyPreset(1000, 500, 100)}
+                  onClick={() => applyPreset(1000, 0, 500, 500, 0, 100, 100)}
                   className={`px-2.5 py-2 rounded border text-left transition cursor-pointer ${
-                    cooldownTimer === 1000 && sendDelay === 500 && toolExecutionDelay === 100
+                    cooldownTimer === 1000 &&
+                    cooldownRandomMin === 0 &&
+                    cooldownRandomMax === 500 &&
+                    sendDelay === 500 &&
+                    sendRandomMin === 0 &&
+                    sendRandomMax === 100 &&
+                    toolExecutionDelay === 100
                       ? 'border-sky-500 bg-sky-950/40 text-sky-300'
                       : 'border-[#2c3038] bg-[#16181d] text-slate-400 hover:border-slate-600 hover:text-slate-200'
                   }`}
                 >
                   <div className="flex items-center justify-between text-xs font-medium">
                     <span>Fast</span>
-                    {cooldownTimer === 1000 && sendDelay === 500 && toolExecutionDelay === 100 && <Check size={12} />}
+                    {cooldownTimer === 1000 &&
+                      cooldownRandomMin === 0 &&
+                      cooldownRandomMax === 500 &&
+                      sendDelay === 500 &&
+                      sendRandomMin === 0 &&
+                      sendRandomMax === 100 &&
+                      toolExecutionDelay === 100 && <Check size={12} />}
                   </div>
-                  <span className="text-[10px] text-slate-500 block mt-0.5">1.0s / 0.5s / 100ms</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">1.0s (+0-0.5s) / 0.5s (+0-0.1s) / 100ms</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => applyPreset(3000, 1000, 150)}
+                  onClick={() => applyPreset(3000, 0, 1000, 1000, 50, 150, 150)}
                   className={`px-2.5 py-2 rounded border text-left transition cursor-pointer ${
-                    cooldownTimer === 3000 && sendDelay === 1000 && toolExecutionDelay === 150
+                    cooldownTimer === 3000 &&
+                    cooldownRandomMin === 0 &&
+                    cooldownRandomMax === 1000 &&
+                    sendDelay === 1000 &&
+                    sendRandomMin === 50 &&
+                    sendRandomMax === 150 &&
+                    toolExecutionDelay === 150
                       ? 'border-sky-500 bg-sky-950/40 text-sky-300'
                       : 'border-[#2c3038] bg-[#16181d] text-slate-400 hover:border-slate-600 hover:text-slate-200'
                   }`}
                 >
                   <div className="flex items-center justify-between text-xs font-medium">
                     <span>Balanced</span>
-                    {cooldownTimer === 3000 && sendDelay === 1000 && toolExecutionDelay === 150 && <Check size={12} />}
+                    {cooldownTimer === 3000 &&
+                      cooldownRandomMin === 0 &&
+                      cooldownRandomMax === 1000 &&
+                      sendDelay === 1000 &&
+                      sendRandomMin === 50 &&
+                      sendRandomMax === 150 &&
+                      toolExecutionDelay === 150 && <Check size={12} />}
                   </div>
-                  <span className="text-[10px] text-slate-500 block mt-0.5">3.0s / 1.0s / 150ms</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">3.0s (+0-1.0s) / 1.0s (+50-150ms) / 150ms</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => applyPreset(5000, 2000, 250)}
+                  onClick={() => applyPreset(5000, 500, 2000, 2000, 100, 300, 250)}
                   className={`px-2.5 py-2 rounded border text-left transition cursor-pointer ${
-                    cooldownTimer === 5000 && sendDelay === 2000 && toolExecutionDelay === 250
+                    cooldownTimer === 5000 &&
+                    cooldownRandomMin === 500 &&
+                    cooldownRandomMax === 2000 &&
+                    sendDelay === 2000 &&
+                    sendRandomMin === 100 &&
+                    sendRandomMax === 300 &&
+                    toolExecutionDelay === 250
                       ? 'border-sky-500 bg-sky-950/40 text-sky-300'
                       : 'border-[#2c3038] bg-[#16181d] text-slate-400 hover:border-slate-600 hover:text-slate-200'
                   }`}
                 >
                   <div className="flex items-center justify-between text-xs font-medium">
                     <span>Safe</span>
-                    {cooldownTimer === 5000 && sendDelay === 2000 && toolExecutionDelay === 250 && <Check size={12} />}
+                    {cooldownTimer === 5000 &&
+                      cooldownRandomMin === 500 &&
+                      cooldownRandomMax === 2000 &&
+                      sendDelay === 2000 &&
+                      sendRandomMin === 100 &&
+                      sendRandomMax === 300 &&
+                      toolExecutionDelay === 250 && <Check size={12} />}
                   </div>
-                  <span className="text-[10px] text-slate-500 block mt-0.5">5.0s / 2.0s / 250ms</span>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">5.0s (+0.5-2.0s) / 2.0s (+0.1-0.3s) / 250ms</span>
                 </button>
               </div>
             </div>

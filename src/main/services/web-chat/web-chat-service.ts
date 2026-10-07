@@ -6,6 +6,11 @@ import type {
   WebChatTargetId,
   WebChatTargetInfo,
 } from "@shared/types";
+import {
+  getWebChatProfile,
+  WEB_CHAT_PROFILES,
+  type WebChatProfile,
+} from "./profiles";
 
 /**
  * Drives a real chat site (chat.deepseek.com, chatgpt.com, …) in a dedicated
@@ -53,16 +58,10 @@ const PARTITION = "persist:AnythingButProPlan-webchat";
  * Google blocks OAuth sign-in from embedded webviews. Presenting a
  * laundered Chrome UA — which is what `plainChromeUserAgent` produces, a
  * UA byte-shaped like stock Chrome with the Electron and app tokens
- * stripped — is what Google rejects. Orca's isolated harness measured this
- * both ways: a byte-for-byte stock Chrome UA fails with
- * `accounts.google.com/v3/signin/rejected`, while an untouched Electron UA
- * (or any UA carrying an extra product token) reaches the password page.
+ * stripped — is what Google rejects with `accounts.google.com/v3/signin/rejected`.
  *
- * Google also rejects a Safari-shaped UA with Client Hints stripped. The
- * combination that works is a Firefox identity on the sign-in hosts, with
- * no `sec-ch-ua*` headers at all, because that is exactly what a real
- * Firefox sends. See the Orca issue and the follow-up PR that shipped this
- * fix.
+ * The combination that reliably works is a Firefox identity on the sign-in hosts,
+ * with no `sec-ch-ua*` client hint headers, matching what a real Firefox sends.
  *
  * Pinned to Firefox 138 rather than a computed current version: a UA that
  * advertises a version newer than any real Firefox release trips Google's
@@ -73,18 +72,13 @@ const GOOGLE_AUTH_FIREFOX_UA =
 
 /**
  * Hosts whose requests must carry the Firefox identity. `accounts.google.com`
- * is the sign-in host itself; the others are the Google surfaces the sign-in
- * flow redirects through (consent, 2FA, account chooser). Matching by host
- * suffix rather than by exact string keeps a future subdomain working
- * without a code change.
- */
-/**
- * Only the sign-in hosts. `myaccount.google.com` and `gds.google.com` are
- * post-auth surfaces — Google's own reference implementation keeps the
- * profile's real identity on them, and Orca's `browser-google-auth-ua.test.ts`
- * asserts `isGoogleAuthUrl('https://myaccount.google.com/')` is `false`.
- * Presenting a Firefox UA there would make the session look like a different
- * browser immediately after sign-in completes.
+ * is the sign-in host itself; `accounts.youtube.com` handles Google account
+ * chooser and authentication surfaces. Matching by host suffix rather than
+ * by exact string keeps a future subdomain working without a code change.
+ *
+ * Only the sign-in hosts are matched. Post-auth surfaces (`myaccount.google.com`,
+ * `gds.google.com`) keep the profile's real Chrome identity so the session does
+ * not appear as a different browser after sign-in completes.
  */
 const GOOGLE_AUTH_HOSTS = ["accounts.google.com", "accounts.youtube.com"];
 
@@ -159,221 +153,15 @@ const CLIPBOARD_SETTLE_MS = 1500;
  */
 const FOCUS_SETTLE_MS = 400;
 
-interface WebChatTarget {
-  id: WebChatTargetId;
-  label: string;
-  url: string;
-  inputSelectors: string[];
-  sendSelectors: string[];
-  responseSelectors: string[];
-  stopSelectors: string[];
-  /**
-   * "Copy message" affordances, best-first. When one is found, the page
-   * script clicks it after the reply stabilises and the main process reads
-   * the clipboard instead of scraping the DOM — the site copies the full
-   * markdown source of the turn, which is exactly what the parser wants.
-   * A generic `aria-label` fallback is used when the site-specific entries
-   * miss, and the response selectors remain the fallback when no copy
-   * control can be found at all.
-   */
-  copySelectors?: string[];
-  /**
-   * File inputs to try when attaching a document, best-first. Every one of
-   * these sites renders a hidden `<input type="file">` for the attach button;
-   * the generic first entry covers all of them, and the site-specific ones
-   * exist because a page can have several file inputs (avatar upload, import
-   * from Drive) and picking the wrong one attaches the document to something
-   * that is not the composer.
-   */
-  fileSelectors?: string[];
-}
+type WebChatTarget = WebChatProfile;
 
 /**
- * Selector lists are ordered best-first. When every entry misses, the page
- * script falls back to structural heuristics (`contenteditable`, a button
- * labelled "Stop"), so a site that renames its CSS classes still works.
+ * Supported web chat targets configured via provider profiles.
  */
-export const WEB_CHAT_TARGETS: WebChatTarget[] = [
-  {
-    id: "deepseek",
-    label: "DeepSeek",
-    url: "https://chat.deepseek.com/",
-    inputSelectors: [
-      "textarea#chat-input",
-      "textarea[placeholder]",
-      'div[contenteditable="true"]',
-    ],
-    // DeepSeek's send button is an unlabelled div that only becomes clickable
-    // once the composer has content. The page script falls back to Enter,
-    // which is what the site itself listens for.
-    sendSelectors: ['div[role="button"][aria-disabled="false"][class*="send"]'],
-    responseSelectors: [".ds-markdown", 'div[class*="markdown"]'],
-    stopSelectors: [
-      'div[role="button"][aria-label*="Stop" i]',
-      'button[aria-label*="Stop" i]',
-    ],
-    copySelectors: [
-      'div[role="button"][aria-label*="Copy" i]',
-      'button[aria-label*="Copy" i]',
-      'div[role="button"][title*="Copy" i]',
-      'button[title*="Copy" i]',
-      'div[role="button"][aria-label*="复制"]',
-      'button[aria-label*="复制"]',
-      'div[role="button"][title*="复制"]',
-      'button[title*="复制"]',
-      '.ds-icon-button[aria-label*="Copy" i]',
-      '.ds-icon-button[title*="Copy" i]',
-      '.ds-icon-button[aria-label*="复制"]',
-      '[data-testid*="copy" i]',
-      'button[class*="copy" i]',
-      'div[role="button"][class*="copy" i]',
-      '.ds-icon-button[class*="copy" i]',
-    ],
-    fileSelectors: ['input[type="file"]'],
-  },
-  {
-    id: "chatgpt",
-    label: "ChatGPT",
-    url: "https://chatgpt.com/",
-    inputSelectors: [
-      "#prompt-textarea",
-      'div#prompt-textarea[contenteditable="true"]',
-      'div[contenteditable="true"].ProseMirror',
-      'div[contenteditable="true"]',
-      'textarea[data-id="root"]',
-    ],
-    sendSelectors: [
-      'button[data-testid="send-button"]',
-      'button[aria-label="Send prompt"]',
-      'button[aria-label*="Send" i]',
-      'button[data-testid="fruitjuice-send-button"]',
-    ],
-    responseSelectors: [
-      '[data-message-author-role="assistant"] .markdown',
-      '[data-message-author-role="assistant"]',
-      'div.agent-turn',
-      '.markdown.prose',
-    ],
-    stopSelectors: [
-      'button[data-testid="stop-button"]',
-      'button[aria-label*="Stop" i]',
-      'button[aria-label*="Stop generating" i]',
-    ],
-    copySelectors: [
-      'button[data-testid="copy-turn-action-button"]',
-      'button[aria-label="Copy"]',
-      'button[aria-label*="Copy" i]',
-      'button[aria-label*="Copy code" i]',
-    ],
-    fileSelectors: ['input[type="file"]'],
-  },
-  {
-    id: "claude",
-    label: "Claude",
-    url: "https://claude.ai/new",
-    inputSelectors: [
-      'div[contenteditable="true"].ProseMirror',
-      'div[contenteditable="true"]',
-    ],
-    sendSelectors: [
-      'button[aria-label="Send message"]',
-      'button[aria-label*="Send" i]',
-    ],
-    responseSelectors: [
-      ".font-claude-message",
-      '[data-testid="assistant-message"]',
-    ],
-    stopSelectors: [
-      'button[aria-label="Stop response"]',
-      'button[aria-label*="Stop" i]',
-    ],
-    copySelectors: [
-      'button[data-testid="action-bar-copy"]',
-      'button[aria-label*="Copy" i]',
-    ],
-    fileSelectors: ['input[type="file"]'],
-  },
-  {
-    id: "gemini",
-    label: "Gemini",
-    url: "https://gemini.google.com/app",
-    inputSelectors: [
-      'rich-textarea .ql-editor[contenteditable="true"]',
-      'div.ql-editor[contenteditable="true"]',
-      'div[contenteditable="true"].ql-editor',
-      'div[contenteditable="true"][role="textbox"]',
-      'div[contenteditable="true"]',
-      'textarea[aria-label*="prompt" i]',
-    ],
-    sendSelectors: [
-      "button.send-button",
-      'button[aria-label*="Send" i]',
-      'button[aria-label*="Submit" i]',
-      '.send-button-container button',
-      'div[role="button"][aria-label*="Send" i]',
-    ],
-    responseSelectors: [
-      "model-response",
-      ".model-response-text",
-      "message-content",
-      ".response-container-content",
-      "div.markdown",
-      ".markdown",
-    ],
-    stopSelectors: [
-      'button[aria-label*="Stop" i]',
-      '.stop-button',
-      'button[aria-label*="Stop response" i]',
-    ],
-    copySelectors: [
-      "copy-button button",
-      'button[aria-label*="Copy" i]',
-      'button[data-test-id="copy-button"]',
-      'button[title*="Copy" i]',
-      'div[role="button"][aria-label*="Copy" i]',
-    ],
-    fileSelectors: ['input[type="file"]'],
-  },
-  {
-    id: "kimi",
-    label: "Kimi",
-    url: "https://kimi.com/",
-    inputSelectors: ['div[contenteditable="true"]', "textarea"],
-    sendSelectors: ['div[class*="send-button"]', 'button[class*="send"]'],
-    responseSelectors: [
-      'div[class*="markdown"]',
-      'div[class*="segment-content"]',
-    ],
-    stopSelectors: ['div[class*="stop"]'],
-    copySelectors: [
-      'div[class*="copy-button"]',
-      'div[role="button"][aria-label*="Copy" i]',
-      'button[aria-label*="Copy" i]',
-    ],
-    fileSelectors: ['input[type="file"]'],
-  },
-  {
-    id: "qwen",
-    label: "Qwen Chat",
-    url: "https://chat.qwen.ai/",
-    inputSelectors: [
-      "textarea#chat-input",
-      "textarea[placeholder]",
-      'div[contenteditable="true"]',
-    ],
-    sendSelectors: [
-      "button#send-message-button",
-      'button[type="submit"]',
-      'button[aria-label*="Send" i]',
-    ],
-    responseSelectors: ['div[class*="markdown"]', 'div[class*="response"]'],
-    stopSelectors: ['button[aria-label*="Stop" i]', 'button[class*="stop"]'],
-    copySelectors: [
-      'button[aria-label*="Copy" i]',
-      'div[role="button"][aria-label*="Copy" i]',
-    ],
-    fileSelectors: ['input[type="file"]'],
-  },
+export const WEB_CHAT_TARGETS: WebChatProfile[] = [
+  WEB_CHAT_PROFILES.deepseek,
+  WEB_CHAT_PROFILES.chatgpt,
+  WEB_CHAT_PROFILES.gemini,
 ];
 
 export function listWebChatTargets(): WebChatTargetInfo[] {
@@ -482,12 +270,10 @@ const STATUS_POLL_INTERVAL_MS = 1000;
 
 /**
  * In-page inspection script executed periodically in each open web chat window.
- * Detects whether the chat model is:
- *   - 'paused': a "Continue" / "Resume" / "继续" button is visible (e.g. DeepSeek reached token/thinking limit)
- *   - 'working': a "Stop" button, busy spinner, thinking block, or streaming text change is active
- *   - 'idle': none of the above
+ * Detects whether the chat model is paused, working, or idle using provider-tailored rules.
  */
-const STATUS_INSPECTION_SCRIPT = `(() => {
+function buildStatusInspectionScript(profile: WebChatProfile): string {
+  return `(() => {
   // If deliverPrompt page script explicitly flagged paused or working, honor it immediately
   if (window.__AnythingButProPlanWebChatStatus === 'paused') return 'paused';
   if (window.__AnythingButProPlanWebChatStatus === 'working') return 'working';
@@ -497,121 +283,27 @@ const STATUS_INSPECTION_SCRIPT = `(() => {
     return !!(el.offsetWidth || el.offsetHeight || (el.getClientRects && el.getClientRects().length > 0));
   };
 
-  // 1. Detect PAUSED state (Continue / Resume / 继续)
-  const allClickables = document.querySelectorAll('button, [role="button"], a');
-  for (const b of allClickables) {
-    if (!isVisible(b)) continue;
-    const text = (b.textContent || '').trim();
-    const label = (b.getAttribute('aria-label') || '').trim();
-    const title = (b.getAttribute('title') || '').trim();
-    const combined = (label + ' ' + title + ' ' + text).toLowerCase();
-
-    // Exclude login/OAuth and terms buttons
-    const isExcluded = /\\bcontinue\\s+(with|to)\\b/i.test(combined) ||
-      /\\b(terms|privacy|policy|google|apple|github|account|login|sign\\s*in)\\b/i.test(combined);
-
-    if (!isExcluded) {
-      if (
-        /^(continue|resume|keep going|继续)$/i.test(text) ||
-        /^(continue|resume|keep going|继续)$/i.test(label) ||
-        /\\b(continue generating|continue thinking|resume generating|继续生成|继续思考)\\b/i.test(combined) ||
-        (/\\b(continue|resume)\\b/i.test(combined) && combined.length < 35) ||
-        /^(继续|继续生成|继续思考)$/.test(text)
-      ) {
-        return 'paused';
-      }
-    }
-  }
+  // 1. Detect PAUSED state
+  const isPaused = () => {
+    ${profile.getIsPausedScript()}
+  };
+  if (isPaused()) return 'paused';
 
   // 2. Detect WORKING state
-  // A. Stop buttons & selectors
-  const stopSels = [
-    'div[role="button"][aria-label*="Stop" i]',
-    'button[aria-label*="Stop" i]',
-    'div[role="button"][title*="Stop" i]',
-    'button[title*="Stop" i]',
-    '[aria-label*="停止" i]',
-    '[title*="停止" i]',
-    'button[data-testid="stop-button"]',
-    'button[aria-label="Stop response"]',
-    'button[aria-label="Stop generating"]',
-    '.ds-icon-button[aria-label*="Stop" i]',
-    '.ds-icon-button[aria-label*="停止" i]',
-    '.ds-icon-button[title*="Stop" i]',
-    '.ds-icon-button[title*="停止" i]',
-    'div[role="button"][class*="stop" i]',
-    'button[class*="stop" i]',
-    '.ds-icon-button[class*="stop" i]',
-  ];
-  for (const s of stopSels) {
-    try {
-      const el = document.querySelector(s);
-      if (isVisible(el)) return 'working';
-    } catch {}
-  }
+  const stopSels = ${JSON.stringify(profile.stopSelectors)};
+  const isGenerating = () => {
+    ${profile.getIsGeneratingScript()}
+  };
+  if (isGenerating()) return 'working';
 
-  // B. Composer stop button (DeepSeek and others replace send button with stop inside composer)
-  const composer = document.querySelector('textarea#chat-input, textarea[placeholder], div[contenteditable="true"]')?.closest('div[class*="input" i], form');
-  if (composer) {
-    const composerStop = composer.querySelector(
-      'div[role="button"][class*="stop" i], button[class*="stop" i], .ds-icon-button[class*="stop" i], [aria-label*="stop" i], [aria-label*="停止" i]'
-    );
-    if (isVisible(composerStop)) return 'working';
+  // 3. Detect BUSY state
+  const isBusy = () => {
+    ${profile.getIsBusyScript()}
+  };
+  if (isBusy()) return 'working';
 
-    // DeepSeek stop button SVG has a square rect or stop path inside the composer action button
-    const composerButtons = composer.querySelectorAll('button, [role="button"], .ds-icon-button');
-    for (const b of composerButtons) {
-      if (!isVisible(b)) continue;
-      const rect = b.querySelector('svg rect');
-      if (rect) {
-        const w = parseFloat(rect.getAttribute('width') || '0');
-        const h = parseFloat(rect.getAttribute('height') || '0');
-        if (w >= 4 && h >= 4) return 'working';
-      }
-    }
-  }
-
-  // C. Button text or aria-label indicating stop
-  const buttons = document.querySelectorAll('button, [role="button"]');
-  for (const b of buttons) {
-    if (!isVisible(b)) continue;
-    const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).toLowerCase();
-    const text = (b.textContent || '').trim().toLowerCase();
-    if (/^(stop|stop generating|停止|停止生成|停止思考)$/.test(text) || /\\b(stop generating|停止生成|停止思考)\\b/.test(label)) {
-      return 'working';
-    }
-  }
-
-  // D. Active streaming cursor
-  const cursorEls = document.querySelectorAll(
-    '.ds-cursor, span[class~="cursor" i], .result-streaming, [data-is-streaming="true"]'
-  );
-  for (const el of cursorEls) {
-    if (isVisible(el)) return 'working';
-  }
-
-  // E. Active loading / busy state (exclude static completed thinking/reasoning containers)
-  const busyEls = document.querySelectorAll(
-    '.animate-spin, svg[class*="spin" i], [aria-busy="true"], mat-progress-spinner, [role="progressbar"]'
-  );
-  for (const el of busyEls) {
-    if (isVisible(el)) {
-      if (el.closest('nav, aside, [role="navigation"], [class*="sidebar" i], [class*="history" i], [class*="chat-list" i], [class*="menu" i]')) continue;
-      return 'working';
-    }
-  }
-
-  // F. Assistant message text streaming/growth detection
-  const respSels = [
-    '.ds-markdown',
-    '[data-message-author-role="assistant"] .markdown',
-    '[data-message-author-role="assistant"]',
-    '.font-claude-message',
-    '[data-testid="assistant-message"]',
-    'model-response',
-    '.model-response-text',
-    'div[class*="markdown" i]'
-  ];
+  // 4. Assistant message text streaming/growth detection
+  const respSels = ${JSON.stringify(profile.responseSelectors)};
   for (const sel of respSels) {
     const nodes = document.querySelectorAll(sel);
     if (nodes && nodes.length > 0) {
@@ -634,23 +326,32 @@ const STATUS_INSPECTION_SCRIPT = `(() => {
 
   return 'idle';
 })()`;
+}
 
 const IDLE_CONFIRMATION_THRESHOLD = 2; // Require 2 consecutive 'idle' polls (at 1000ms = 2s) to transition to idle
 const idleStreakCounts = new Map<WebChatTargetId, number>();
 
 async function pollOpenWindowsStatus(): Promise<void> {
-  if (windows.size === 0) return;
+  if (windows.size === 0) {
+    if (liveStatusTimer !== null) {
+      clearTimeout(liveStatusTimer);
+      liveStatusTimer = null;
+    }
+    return;
+  }
   for (const [targetId, win] of windows) {
     if (win.isDestroyed() || win.webContents.isDestroyed()) {
       windows.delete(targetId);
       idleStreakCounts.delete(targetId);
+      generationObserved.delete(targetId);
       setStatus(targetId, "idle");
       continue;
     }
     if (typeof win.webContents.isLoading === "function" && win.webContents.isLoading()) continue;
     try {
+      const profile = getWebChatProfile(targetId);
       const status = (await win.webContents.executeJavaScript(
-        STATUS_INSPECTION_SCRIPT,
+        buildStatusInspectionScript(profile),
         true,
       )) as WebChatStatus;
 
@@ -693,11 +394,37 @@ export async function _pollOpenWindowsStatusForTest(): Promise<void> {
 
 let liveStatusTimer: NodeJS.Timeout | null = null;
 
+function hasActiveWork(): boolean {
+  for (const targetId of windows.keys()) {
+    if (generationObserved.get(targetId) === true || statuses.get(targetId) === "working") {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function runPollerCycle(): Promise<void> {
+  await pollOpenWindowsStatus();
+  if (windows.size === 0) {
+    if (liveStatusTimer !== null) {
+      clearTimeout(liveStatusTimer);
+      liveStatusTimer = null;
+    }
+    return;
+  }
+  const delay = hasActiveWork() ? 1000 : 3000;
+  liveStatusTimer = setTimeout(() => {
+    void runPollerCycle();
+  }, delay);
+  liveStatusTimer.unref?.();
+}
+
 function ensureStatusPoller(): void {
   if (liveStatusTimer !== null) return;
-  liveStatusTimer = setInterval(() => {
-    void pollOpenWindowsStatus();
-  }, STATUS_POLL_INTERVAL_MS);
+  const delay = hasActiveWork() ? 1000 : 3000;
+  liveStatusTimer = setTimeout(() => {
+    void runPollerCycle();
+  }, delay);
   liveStatusTimer.unref?.();
 }
 
@@ -719,7 +446,7 @@ function plainChromeUserAgent(): string {
 }
 
 function findTarget(id: WebChatTargetId): WebChatTarget | undefined {
-  return WEB_CHAT_TARGETS.find((t) => t.id === id);
+  return getWebChatProfile(id);
 }
 
 /**
@@ -839,7 +566,13 @@ async function ensureWindow(target: WebChatTarget): Promise<BrowserWindow> {
 
   win.on("closed", () => {
     windows.delete(target.id);
+    idleStreakCounts.delete(target.id);
+    generationObserved.delete(target.id);
     setStatus(target.id, "idle");
+    if (windows.size === 0 && liveStatusTimer !== null) {
+      clearTimeout(liveStatusTimer);
+      liveStatusTimer = null;
+    }
   });
   windows.set(target.id, win);
   ensureStatusPoller();
@@ -852,29 +585,12 @@ async function ensureWindow(target: WebChatTarget): Promise<BrowserWindow> {
 }
 
 /**
- * The page-side driver. Runs inside the chat site, so it must be plain
- * JavaScript with no imports and no TS types — it is stringified and handed
- * to `executeJavaScript`.
- *
- * The flow:
- *   1. Poll for the composer. Sites render it late and a cold load can take
- *      several seconds.
- *   2. Insert the prompt. `<textarea>` goes through the native value setter
- *      so React's synthetic `onChange` fires; a `contenteditable` (ProseMirror,
- *      Lexical, Quill) goes through `execCommand('insertText')`, which is the
- *      only insertion path those editors treat as real typing.
- *   3. Submit — click the send button if one is enabled, otherwise fire a
- *      synthetic Enter, which is what every one of these sites listens for.
- *   4. Poll the last assistant message until the text stops changing for
- *      two seconds AND no visible "stop generating" control is present. The
- *      stop-button check is the fast path; the text-stability check is the
- *      fallback for sites that do not expose one.
- *
- * The script deliberately does *not* click the copy button. The copy click
- * has to happen in a focused document (see `deliverPrompt`), and the window
- * is deliberately unfocused for the whole typing/submitting/waiting phase.
+ * In-page HTML-to-Markdown serializer executed inside the chat webview.
+ * Walks the rendered response DOM, removes UI artifacts and provider-specific
+ * blocks (via profile.getCleanResponseScript()), and outputs formatted Markdown.
  */
-const CLEAN_ASSISTANT_TEXT_FUNCTION = `
+function buildCleanAssistantTextFunction(profile: WebChatProfile): string {
+  return `
   const UI_LABEL = /^(copy|download|edit|share|retry|regenerate|model|think|thought|reasoning|复制|下载|编辑|分享|重试)$/i;
   const BLOCK_TAGS = new Set([
     'p','div','section','article','header','footer','main','aside','nav',
@@ -902,6 +618,9 @@ const CLEAN_ASSISTANT_TEXT_FUNCTION = `
             el.remove();
           }
         });
+
+      // Provider-specific DOM cleaning
+      ${profile.getCleanResponseScript()}
 
       const out = [];
       const walk = (n) => {
@@ -1006,8 +725,28 @@ const CLEAN_ASSISTANT_TEXT_FUNCTION = `
     }
   };
 `;
+}
 
-function buildScript(target: WebChatTarget, prompt: string, sendDelayMs: number = 1000): string {
+/**
+ * The page-side driver script executed inside the chat site via `executeJavaScript`.
+ *
+ * Flow:
+ *   1. Poll for the composer input element using target.inputSelectors.
+ *   2. Inject the prompt via target.getInjectPromptScript().
+ *   3. Submit the prompt via target.getSubmitScript().
+ *   4. Poll the newest assistant response until text stops changing AND
+ *      no visible generating/busy indicator is present (via target profile scripts).
+ *
+ * Deliberately does not click the copy button: clipboard clicks require document
+ * focus and user activation, which are handled after completion in `readReplyViaCopy`.
+ */
+function buildScript(
+  target: WebChatTarget,
+  prompt: string,
+  sendDelayMs: number = 1000,
+  randomMinMs: number = 50,
+  randomMaxMs: number = 150,
+): string {
   return `(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const queryFirst = (sels) => {
@@ -1024,7 +763,7 @@ function buildScript(target: WebChatTarget, prompt: string, sendDelayMs: number 
     return out;
   };
 
-  ${CLEAN_ASSISTANT_TEXT_FUNCTION}
+  ${buildCleanAssistantTextFunction(target)}
 
   const inputSels = ${JSON.stringify(target.inputSelectors)};
   const sendSels = ${JSON.stringify(target.sendSelectors)};
@@ -1047,31 +786,15 @@ function buildScript(target: WebChatTarget, prompt: string, sendDelayMs: number 
     return { ok: false, error: 'Could not find the chat input. Are you signed in?' };
   }
 
-  input.focus();
-  const tag = input.tagName.toLowerCase();
-  if (tag === 'textarea' || tag === 'input') {
-    const proto = tag === 'textarea' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
-    if (desc && desc.set) desc.set.call(input, prompt);
-    else input.value = prompt;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  } else {
-    const sel = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(input);
-    sel.removeAllRanges();
-    sel.addRange(range);
-    document.execCommand('insertText', false, prompt);
-    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
-    if (!input.textContent || input.textContent.trim().length === 0) {
-      input.innerText = prompt;
-      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-  }
-  // Pacing: Wait configured delay + random 50-150ms jitter after putting prompt into input before clicking send
-  const jitter = Math.floor(Math.random() * 101) + 50;
+  // --- Provider-specific input injection ---
+  ${target.getInjectPromptScript('prompt')}
+
+  // Pacing: Wait configured delay + configurable random jitter after putting prompt into input before clicking send
+  const minJitter = ${Math.max(0, randomMinMs)};
+  const maxJitter = Math.max(minJitter, ${Math.max(0, randomMaxMs)});
+  const jitter = maxJitter > minJitter
+    ? Math.floor(Math.random() * (maxJitter - minJitter + 1)) + minJitter
+    : minJitter;
   await sleep(${Math.max(50, sendDelayMs)} + jitter);
   if (aborted()) return { ok: false, error: 'Cancelled.' };
 
@@ -1089,80 +812,22 @@ function buildScript(target: WebChatTarget, prompt: string, sendDelayMs: number 
       ? cleanAssistantText(baselineNodes[baselineNodes.length - 1])
       : '';
 
-  const sendBtn = queryFirst(sendSels);
-  const canClick = sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true';
-  if (canClick) {
-    sendBtn.click();
-  } else {
-    const fire = (type) => input.dispatchEvent(new KeyboardEvent(type, {
-      key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true,
-    }));
-    fire('keydown'); fire('keypress'); fire('keyup');
-  }
+  // --- Provider-specific submit trigger ---
+  ${target.getSubmitScript()}
 
   // Pacing: Wait 1 second after clicking send before polling/monitoring
   await sleep(1000);
 
   const isGenerating = () => {
-    for (const s of stopSels) {
-      try {
-        const el = document.querySelector(s);
-        if (el && el.offsetParent !== null) return true;
-      } catch {}
-    }
-    const btns = document.querySelectorAll('button');
-    for (const b of btns) {
-      if (b.offsetParent === null) continue;
-      const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')).toLowerCase();
-      if (/\\bstop\\b/.test(label)) return true;
-    }
-    return false;
+    ${target.getIsGeneratingScript()}
   };
 
-  // Some sites — DeepSeek after a long reasoning phase especially — stop
-  // mid-reply and render a "Continue" button rather than streaming to
-  // completion. The reply is not finished and will not finish until the
-  // user clicks that button. Treating this as "stable, complete" would
-  // silently hand back a truncated reply; treating it as "still working"
-  // would let the loop wait out its full timeout. Detect it explicitly so
-  // the loop keeps polling and the main process can flip the renderer's
-  // indicator to "paused".
   const isPaused = () => {
-    const btns = document.querySelectorAll('button, [role="button"]');
-    for (const b of btns) {
-      if (b.offsetParent === null) continue;
-      if (b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
-      const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '') + ' ' + (b.textContent || '')).trim().toLowerCase();
-      if (/google|apple|github|email|account|login|sign in|sign up|cookie|policy|terms/i.test(label)) continue;
-      if (
-        /\\b(continue|resume|keep going|continue generating|continue thinking)\\b/i.test(label) ||
-        /(继续生成|继续思考|继续)/.test(label)
-      ) {
-        return b;
-      }
-    }
-    return null;
+    ${target.getIsPausedScript()}
   };
 
-  // A visible element whose class or aria names a common "model is busy"
-  // state — a reasoning spinner, a "Thinking…" label, an aria-busy
-  // container. Used to suppress the stability counter while the model is
-  // still reasoning, since a placeholder's text does not change and would
-  // otherwise be mistaken for a finished reply after two seconds.
   const isBusyIndicator = () => {
-    // Only elements with active animations, loading spinners, or explicit aria-busy=true
-    // DO NOT match static [class*="thinking"] or [class*="reasoning"] because modern models (DeepSeek, etc.)
-    // keep completed thought containers in the DOM forever after finishing!
-    const els = document.querySelectorAll(
-      '[aria-busy="true"], .animate-spin, svg[class*="spin" i], mat-progress-spinner, [role="progressbar"], .ds-cursor, .result-streaming, [data-is-streaming="true"], span[class~="cursor" i]'
-    );
-    for (const el of els) {
-      if (el.offsetParent !== null) {
-        if (el.closest('nav, aside, [role="navigation"], [class*="sidebar" i], [class*="history" i], [class*="chat-list" i]')) continue;
-        return true;
-      }
-    }
-    return false;
+    ${target.getIsBusyScript()}
   };
 
   const started = Date.now();
@@ -1592,7 +1257,7 @@ async function readReplyViaCopy(
 
 function buildScrapeLatestAssistantResponseScript(target: WebChatTarget): string {
   return `(() => {
-    ${CLEAN_ASSISTANT_TEXT_FUNCTION}
+    ${buildCleanAssistantTextFunction(target)}
 
     const respSels = ${JSON.stringify(target.responseSelectors)};
     const queryAll = (sels) => {
@@ -1751,6 +1416,8 @@ async function deliverPrompt(
   target: WebChatTarget,
   prompt: string,
   sendDelayMs: number = 1000,
+  randomMinMs: number = 50,
+  randomMaxMs: number = 150,
 ): Promise<WebChatSendResult> {
   try {
     await win.webContents.executeJavaScript(
@@ -1767,7 +1434,7 @@ async function deliverPrompt(
 
   try {
     const raw = (await win.webContents.executeJavaScript(
-      buildScript(target, prompt, sendDelayMs),
+      buildScript(target, prompt, sendDelayMs, randomMinMs, randomMaxMs),
       true,
     )) as
       | { ok?: boolean; text?: string; error?: string; stable?: boolean }
@@ -1931,12 +1598,20 @@ export async function sendToWebChat(
   targetId: WebChatTargetId,
   prompt: string,
   sendDelayMs: number = 1000,
+  randomMinMs: number = 50,
+  randomMaxMs: number = 150,
 ): Promise<WebChatSendResult> {
   const target = findTarget(targetId);
   if (!target)
     return { ok: false, error: `Unknown web chat target: ${targetId}` };
 
   lastPromptSentTimes.set(targetId, Date.now());
+  generationObserved.set(targetId, true);
+  if (liveStatusTimer !== null) {
+    clearTimeout(liveStatusTimer);
+    liveStatusTimer = null;
+  }
+  ensureStatusPoller();
 
   let win: BrowserWindow;
   try {
@@ -1950,7 +1625,7 @@ export async function sendToWebChat(
 
   const maxRetries = 3;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const result = await deliverPrompt(win, target, prompt, sendDelayMs);
+    const result = await deliverPrompt(win, target, prompt, sendDelayMs, randomMinMs, randomMaxMs);
 
     const isTransientError =
       !result.ok &&
@@ -2010,7 +1685,7 @@ export interface WebChatDocumentResult extends WebChatSendResult {
  * in flight. Two mechanisms cover the wait: a generic progress-indicator
  * poll (`waitForUploadSettle`) for sites that render one, and a fixed
  * ten-second grace period for everyone else — there is no shared DOM event
- * for "upload finished" across six sites, and the send path already
+ * for "upload finished" across web chat sites, and the send path already
  * tolerates a click that does nothing because it retries and falls back to
  * Enter.
  */
@@ -2103,7 +1778,7 @@ export function cancelWebChat(): void {
  */
 export function closeAllWebChatWindows(): void {
   if (liveStatusTimer !== null) {
-    clearInterval(liveStatusTimer);
+    clearTimeout(liveStatusTimer);
     liveStatusTimer = null;
   }
   idleStreakCounts.clear();

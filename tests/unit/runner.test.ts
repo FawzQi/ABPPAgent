@@ -18,4 +18,14 @@ describe('ProcessRunner', () => {
     expect(res.exitCode).toBe(0)
     expect(res.output.trim()).toBe('hello runner')
   })
+
+  it('streams chunks via onChunk callback', async () => {
+    const chunks: string[] = []
+    const res = await runner.run('call_3', 'echo "stream chunk"', {
+      cwd: process.cwd(),
+      onChunk: (chunk) => chunks.push(chunk),
+    })
+    expect(res.isError).toBe(false)
+    expect(chunks.join('')).toContain('stream chunk')
+  })
 })

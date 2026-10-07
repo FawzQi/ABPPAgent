@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { validateCall, checkReread, forget } from '../../src/main/services/agent/workspace-state'
+import { validateCall, checkReread, forget, clearSessionState } from '../../src/main/services/agent/workspace-state'
 import type { ToolCall } from '../../src/shared/types'
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'))
@@ -32,5 +32,13 @@ describe('checkReread', () => {
     expect(checkReread('s', file)).toBe('ok')
     forget('s', file)
     expect(checkReread('s', file)).toBe('ok')
+  })
+
+  it('clearSessionState clears all tracking for the session', () => {
+    expect(checkReread('session_to_clear', file)).toBe('ok')
+    expect(checkReread('session_to_clear', file)).toBe('warn')
+    clearSessionState('session_to_clear')
+    // After clearSessionState, reading the file again should start from 'ok' as fresh
+    expect(checkReread('session_to_clear', file)).toBe('ok')
   })
 })

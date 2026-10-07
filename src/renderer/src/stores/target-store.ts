@@ -15,7 +15,6 @@ export const useTargetStore = create<TargetStore>((set, get) => ({
   targets: [
     { id: 'deepseek', label: 'DeepSeek (V3/R1)', url: 'https://chat.deepseek.com/', status: 'idle', isReady: false },
     { id: 'chatgpt', label: 'ChatGPT (4o/o1)', url: 'https://chatgpt.com/', status: 'idle', isReady: false },
-    { id: 'claude', label: 'Claude (3.7 Sonnet)', url: 'https://claude.ai/new', status: 'idle', isReady: false },
     { id: 'gemini', label: 'Gemini (Advanced)', url: 'https://gemini.google.com/app', status: 'idle', isReady: false },
   ],
   selectedTargetId: 'deepseek',

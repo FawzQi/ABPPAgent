@@ -28,15 +28,40 @@ export class ProcessRunner {
       }
     }
 
+    const MAX_OUTPUT_BYTES = 2 * 1024 * 1024
+
     return new Promise((resolve) => {
       let outputBuffer = ''
+      let chunkQueue = ''
+      let chunkTimer: NodeJS.Timeout | null = null
       const timeout = options.timeoutMs || 120_000
       let timer: NodeJS.Timeout | null = null
 
+      const flushChunks = () => {
+        if (chunkTimer) {
+          clearTimeout(chunkTimer)
+          chunkTimer = null
+        }
+        if (chunkQueue.length > 0 && options.onChunk) {
+          const chunkToSend = chunkQueue
+          chunkQueue = ''
+          options.onChunk(chunkToSend)
+        }
+      }
+
       const handleChunk = (chunk: string) => {
-        outputBuffer += chunk
+        if (outputBuffer.length < MAX_OUTPUT_BYTES) {
+          const remaining = MAX_OUTPUT_BYTES - outputBuffer.length
+          outputBuffer += chunk.slice(0, remaining)
+          if (chunk.length > remaining) {
+            outputBuffer += '\n[Output truncated at 2MB limit]'
+          }
+        }
         if (options.onChunk) {
-          options.onChunk(chunk)
+          chunkQueue += chunk
+          if (!chunkTimer) {
+            chunkTimer = setTimeout(flushChunks, 40)
+          }
         }
       }
 
@@ -53,6 +78,7 @@ export class ProcessRunner {
 
       proc.on('close', (code) => {
         if (timer) clearTimeout(timer)
+        flushChunks()
         this.activeProcesses.delete(toolCallId)
         const exitCode = code ?? 0
         resolve({
@@ -66,6 +92,7 @@ export class ProcessRunner {
 
       proc.on('error', (err) => {
         if (timer) clearTimeout(timer)
+        flushChunks()
         this.activeProcesses.delete(toolCallId)
         resolve({
           toolCallId,
@@ -77,6 +104,8 @@ export class ProcessRunner {
       })
 
       timer = setTimeout(() => {
+        if (timer) clearTimeout(timer)
+        flushChunks()
         proc.kill('SIGTERM')
         resolve({
           toolCallId,
