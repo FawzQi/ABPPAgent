@@ -7,3 +7,8 @@ release
 .env
 .env.local
 AnythingButProPlan/
+.gitnexus/
+.claude/
+.agent-data/
+AGENTS.md
+CLAUDE.md
