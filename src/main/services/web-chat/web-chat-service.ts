@@ -13,7 +13,7 @@ import {
 } from "./profiles";
 
 /**
- * Drives a real chat site (chat.deepseek.com, chatgpt.com, …) in a dedicated
+ * Drives a real chat site (chat.deepseek.com, chat.qwen.ai, chat.z.ai) in a dedicated
  * Electron window: types the generated prompt into the site's own composer,
  * submits it, waits for the reply to finish streaming, then asks the site to
  * copy its reply to the clipboard and reads it back from the main process.
@@ -160,8 +160,8 @@ type WebChatTarget = WebChatProfile;
  */
 export const WEB_CHAT_TARGETS: WebChatProfile[] = [
   WEB_CHAT_PROFILES.deepseek,
-  WEB_CHAT_PROFILES.chatgpt,
-  WEB_CHAT_PROFILES.gemini,
+  WEB_CHAT_PROFILES.qwen,
+  WEB_CHAT_PROFILES.glm,
 ];
 
 export function listWebChatTargets(): WebChatTargetInfo[] {
@@ -520,6 +520,7 @@ async function ensureWindow(target: WebChatTarget): Promise<BrowserWindow> {
     },
   );
 
+
   // Some sites gate `navigator.clipboard.writeText` behind the Clipboard
   // permission even when the document is focused, and Electron's default
   // permission handler resolves a request as "denied" unless a handler is
@@ -579,7 +580,11 @@ async function ensureWindow(target: WebChatTarget): Promise<BrowserWindow> {
   win.webContents.on("did-finish-load", () => {
     void pollOpenWindowsStatus();
   });
-  await win.loadURL(target.url);
+  try {
+    await win.loadURL(target.url);
+  } catch (err) {
+    console.warn(`[web-chat] Initial navigation for ${target.label} (${target.url}) encountered:`, describe(err));
+  }
   void pollOpenWindowsStatus();
   return win;
 }
@@ -609,6 +614,8 @@ function buildCleanAssistantTextFunction(profile: WebChatProfile): string {
         )
         .forEach((el) => {
           if (
+            el.tagName?.toLowerCase() === 'button' ||
+            el.getAttribute('role') === 'button' ||
             el.querySelector('button, [role="button"]') ||
             el.closest('pre') ||
             el.closest('[class*="code-block" i], [class*="codeblock" i]') ||
@@ -755,12 +762,69 @@ function buildScript(
     }
     return null;
   };
-  const queryAll = (sels) => {
-    const out = [];
-    for (const s of sels) {
-      try { document.querySelectorAll(s).forEach((el) => out.push(el)); } catch {}
+  const queryTopLevelTurns = (sels) => {
+    try {
+      const list = Array.isArray(sels) ? sels : [sels];
+      for (const sel of list) {
+        const raw = Array.from(document.querySelectorAll(sel));
+        if (raw.length > 0) {
+          const rawSet = new Set(raw);
+          return raw.filter((node) => {
+            let p = node.parentElement;
+            while (p) {
+              if (rawSet.has(p)) return false;
+              p = p.parentElement;
+            }
+            return true;
+          });
+        }
+      }
+      return [];
+    } catch {
+      return [];
     }
-    return out;
+  };
+  const queryAll = queryTopLevelTurns;
+
+  const scrollToBottom = () => {
+    try {
+      window.scrollTo({ top: document.body.scrollHeight || document.documentElement.scrollHeight, behavior: 'instant' });
+      if (document.documentElement) document.documentElement.scrollTop = document.documentElement.scrollHeight;
+      if (document.body) document.body.scrollTop = document.body.scrollHeight;
+
+      const all = document.querySelectorAll(
+        'main, [class*="react-scroll-to-bottom" i], [class*="overflow" i], [class*="chat" i], [class*="conversation" i], [class*="message" i], [role="presentation"], [role="main"]'
+      );
+      for (const el of all) {
+        if (el.scrollHeight > el.clientHeight && el.clientHeight > 80) {
+          const style = window.getComputedStyle(el);
+          const oy = style.overflowY;
+          if (oy === 'auto' || oy === 'scroll' || oy === 'overlay' || el.tagName === 'MAIN') {
+            const orig = el.style.scrollBehavior;
+            el.style.scrollBehavior = 'auto';
+            el.scrollTop = el.scrollHeight;
+            if (orig) el.style.scrollBehavior = orig;
+            else el.style.removeProperty('scroll-behavior');
+          }
+        }
+      }
+
+      const bottomEl = document.querySelector(
+        'form, [class*="composer" i], footer, #prompt-textarea, .chat-input-editor, [class*="chat-input" i], [class*="bottom" i]'
+      );
+      if (bottomEl) {
+        try { bottomEl.scrollIntoView({ behavior: 'instant', block: 'end' }); } catch {}
+      }
+
+      const downBtns = document.querySelectorAll(
+        'button[aria-label*="bottom" i], button[aria-label*="scroll" i], button[aria-label*="向下" i], button[aria-label*="底部" i], [class*="scroll-to-bottom" i], [class*="scroll-bottom" i], [class*="scroll-down" i]'
+      );
+      for (const b of downBtns) {
+        if (b.offsetParent !== null || b.offsetWidth > 0) {
+          try { b.click(); } catch {}
+        }
+      }
+    } catch {}
   };
 
   ${buildCleanAssistantTextFunction(target)}
@@ -817,6 +881,7 @@ function buildScript(
 
   // Pacing: Wait 1 second after clicking send before polling/monitoring
   await sleep(1000);
+  scrollToBottom();
 
   const isGenerating = () => {
     ${target.getIsGeneratingScript()}
@@ -864,6 +929,7 @@ function buildScript(
       continue;
     }
     sawAny = true;
+    scrollToBottom();
 
     const generating = isGenerating();
     const pauseBtn = isPaused();
@@ -897,6 +963,11 @@ function buildScript(
       if (stableMs >= targetStableMs) {
         // Pacing: Wait 1 second after response finishes streaming before returning
         await sleep(1000);
+        scrollToBottom();
+        await sleep(250);
+        scrollToBottom();
+        await sleep(500);
+        scrollToBottom();
         window.__AnythingButProPlanWebChatStatus = 'idle';
         return { ok: true, stable: true, text: current };
       }
@@ -907,6 +978,9 @@ function buildScript(
   }
 
   window.__AnythingButProPlanWebChatStatus = 'idle';
+  scrollToBottom();
+  await sleep(250);
+  scrollToBottom();
   if (sawAny) return { ok: true, stable: false, text: lastText };
   return { ok: false, error: 'Timed out waiting for a response.' };
 })()`;
@@ -928,8 +1002,38 @@ function buildScript(
  */
 function buildCollectCopyCandidatesScript(target: WebChatTarget): string {
   return `(() => {
-    // 1. Hook navigator.clipboard.writeText so we can capture the markdown string directly
-    // in memory even if Chromium denies OS clipboard write due to document focus.
+    try {
+      window.scrollTo({ top: document.body.scrollHeight || document.documentElement.scrollHeight, behavior: 'instant' });
+      if (document.documentElement) document.documentElement.scrollTop = document.documentElement.scrollHeight;
+      if (document.body) document.body.scrollTop = document.body.scrollHeight;
+
+      const all = document.querySelectorAll(
+        'main, [class*="react-scroll-to-bottom" i], [class*="overflow" i], [class*="chat" i], [class*="conversation" i], [class*="message" i], [role="presentation"], [role="main"]'
+      );
+      for (const el of all) {
+        if (el.scrollHeight > el.clientHeight && el.clientHeight > 80) {
+          const style = window.getComputedStyle(el);
+          const oy = style.overflowY;
+          if (oy === 'auto' || oy === 'scroll' || oy === 'overlay' || el.tagName === 'MAIN') {
+            const orig = el.style.scrollBehavior;
+            el.style.scrollBehavior = 'auto';
+            el.scrollTop = el.scrollHeight;
+            if (orig) el.style.scrollBehavior = orig;
+            else el.style.removeProperty('scroll-behavior');
+          }
+        }
+      }
+
+      const bottomEl = document.querySelector(
+        'form, [class*="composer" i], footer, #prompt-textarea, .chat-input-editor, [class*="chat-input" i], [class*="bottom" i]'
+      );
+      if (bottomEl) {
+        try { bottomEl.scrollIntoView({ behavior: 'instant', block: 'end' }); } catch {}
+      }
+    } catch {}
+
+    // 1. Hook navigator.clipboard.writeText and DataTransfer.prototype.setData so we can capture
+    // the markdown string directly in memory even if Chromium denies OS clipboard write due to focus.
     window.__AnythingButProPlanCapturedCopy = null;
     if (!window.__AnythingButProPlanClipboardHooked) {
       window.__AnythingButProPlanClipboardHooked = true;
@@ -947,10 +1051,31 @@ function buildCollectCopyCandidatesScript(target: WebChatTarget): string {
         }
       } catch (e) {}
 
+      try {
+        if (typeof DataTransfer !== 'undefined' && DataTransfer.prototype.setData) {
+          const origSetData = DataTransfer.prototype.setData;
+          DataTransfer.prototype.setData = function(format, data) {
+            if (typeof data === 'string' && /text/i.test(format)) {
+              window.__AnythingButProPlanCapturedCopy = data;
+            }
+            return origSetData.apply(this, arguments);
+          };
+        }
+      } catch (e) {}
+
       document.addEventListener('copy', (e) => {
         try {
-          const data = e.clipboardData?.getData('text/plain');
-          if (data) window.__AnythingButProPlanCapturedCopy = data;
+          if (e.clipboardData) {
+            const origSet = e.clipboardData.setData.bind(e.clipboardData);
+            e.clipboardData.setData = function(format, data) {
+              if (typeof data === 'string' && /text/i.test(format)) {
+                window.__AnythingButProPlanCapturedCopy = data;
+              }
+              return origSet(format, data);
+            };
+            const data = e.clipboardData.getData('text/plain');
+            if (data) window.__AnythingButProPlanCapturedCopy = data;
+          }
         } catch {}
       }, true);
     }
@@ -970,7 +1095,7 @@ function buildCollectCopyCandidatesScript(target: WebChatTarget): string {
 
     const isForbidden = (el) => {
       if (!el) return true;
-      if (el.closest('form, div[class*="input" i], textarea, [class*="composer" i], [class*="chat-input" i], #chat-input, [data-message-author-role="user"], [class*="user-message" i], [class*="user_message" i]')) return true;
+      if (el.closest('form, div[class*="input" i], textarea, [class*="composer" i], [class*="chat-input" i], #chat-input, [data-message-author-role="user"], [class*="user-message" i], [class*="user_message" i], [class*="user-message-footer" i], [data-aes-exp*="Request" i]')) return true;
       const label = (el.getAttribute('aria-label') || '').trim();
       const title = (el.getAttribute('title') || '').trim();
       const text = (el.textContent || '').trim();
@@ -986,7 +1111,9 @@ function buildCollectCopyCandidatesScript(target: WebChatTarget): string {
       ],
     )};
 
-    const allButtons = document.querySelectorAll('button, [role="button"], .ds-icon-button, [data-testid*="copy" i]');
+    const allButtons = document.querySelectorAll(
+      'button, [role="button"], .ds-icon-button, div.icon-button, div.simple-button, [class*="simple-button" i], [class*="copy-button" i], [data-testid*="copy" i]'
+    );
     const seen = new Set();
     const candidates = [];
 
@@ -1010,7 +1137,10 @@ function buildCollectCopyCandidatesScript(target: WebChatTarget): string {
       if (!isMatch) {
         const svgs = b.querySelectorAll('svg');
         for (const s of svgs) {
-          const sLabel = ((s.getAttribute('aria-label') || '') + ' ' + (s.getAttribute('name') || '')).toLowerCase();
+          const sUse = s.querySelector('use');
+          const useHref = sUse ? (sUse.getAttribute('href') || sUse.getAttribute('xlink:href') || '') : '';
+          const sCls = typeof s.className === 'string' ? s.className : (s.className?.baseVal || '');
+          const sLabel = ((s.getAttribute('aria-label') || '') + ' ' + (s.getAttribute('name') || '') + ' ' + useHref + ' ' + sCls).toLowerCase();
           if (sLabel.includes('copy') || sLabel.includes('复制') || sLabel.includes('拷贝')) {
             isMatch = true;
             break;
@@ -1057,8 +1187,7 @@ function buildCollectCopyCandidatesScript(target: WebChatTarget): string {
     };
 
     const outerPool = candidates.filter((el) => !isCodeBlockControl(el));
-    // CRITICAL: NEVER fall back to code-block buttons if outerPool is empty.
-    // Falling back to DOM scraping is infinitely better than copying a single code snippet!
+    outerPool.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
     const final = outerPool;
 
     window.__AnythingButProPlanCopyCandidates = final;
@@ -1099,11 +1228,26 @@ async function clickCopyCandidate(
           return { clicked: false, capturedText: null };
         }
         try {
+          // 1. Simulate hover on ancestor message container if present
+          const turn = el.closest('article, [data-testid*="conversation-turn"], div.agent-turn, [data-message-author-role="assistant"], .chat-response-message, .chat-assistant, .chat-content-item-assistant');
+          if (turn) {
+            try { turn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true })); } catch {}
+            try { turn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); } catch {}
+          }
+
+          // 2. Temporarily ensure the element is interactive even if an ancestor had pointer-events: none
+          const origPointerEvents = el.style.pointerEvents;
+          el.style.pointerEvents = 'auto';
+
           try { el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); } catch {}
           try { el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); } catch {}
           try { el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })); } catch {}
           try { el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true })); } catch {}
           el.click();
+
+          if (origPointerEvents) el.style.pointerEvents = origPointerEvents;
+          else el.style.removeProperty('pointer-events');
+
           return { clicked: true, capturedText: window.__AnythingButProPlanCapturedCopy };
         } catch {
           return { clicked: false, capturedText: null };
@@ -1260,15 +1404,30 @@ function buildScrapeLatestAssistantResponseScript(target: WebChatTarget): string
     ${buildCleanAssistantTextFunction(target)}
 
     const respSels = ${JSON.stringify(target.responseSelectors)};
-    const queryAll = (sels) => {
-      const out = [];
-      for (const s of sels) {
-        try { document.querySelectorAll(s).forEach((el) => out.push(el)); } catch {}
+    const queryTopLevelTurns = (sels) => {
+      try {
+        const list = Array.isArray(sels) ? sels : [sels];
+        for (const sel of list) {
+          const raw = Array.from(document.querySelectorAll(sel));
+          if (raw.length > 0) {
+            const rawSet = new Set(raw);
+            return raw.filter((node) => {
+              let p = node.parentElement;
+              while (p) {
+                if (rawSet.has(p)) return false;
+                p = p.parentElement;
+              }
+              return true;
+            });
+          }
+        }
+        return [];
+      } catch {
+        return [];
       }
-      return out;
     };
 
-    const nodes = queryAll(respSels);
+    const nodes = queryTopLevelTurns(respSels);
     let latestText = '';
     for (let i = nodes.length - 1; i >= 0; i--) {
       const t = cleanAssistantText(nodes[i]);
@@ -1279,6 +1438,58 @@ function buildScrapeLatestAssistantResponseScript(target: WebChatTarget): string
     }
     return latestText;
   })()`;
+}
+
+async function scrollChatWindowToBottom(
+  win: BrowserWindow,
+  _target?: WebChatTarget,
+): Promise<void> {
+  try {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return;
+    await win.webContents.executeJavaScript(
+      `(() => {
+        try {
+          window.scrollTo({ top: document.body.scrollHeight || document.documentElement.scrollHeight, behavior: 'instant' });
+          if (document.documentElement) document.documentElement.scrollTop = document.documentElement.scrollHeight;
+          if (document.body) document.body.scrollTop = document.body.scrollHeight;
+
+          const all = document.querySelectorAll(
+            'main, [class*="react-scroll-to-bottom" i], [class*="overflow" i], [class*="chat" i], [class*="conversation" i], [class*="message" i], [role="presentation"], [role="main"]'
+          );
+          for (const el of all) {
+            if (el.scrollHeight > el.clientHeight && el.clientHeight > 80) {
+              const style = window.getComputedStyle(el);
+              const oy = style.overflowY;
+              if (oy === 'auto' || oy === 'scroll' || oy === 'overlay' || el.tagName === 'MAIN') {
+                const orig = el.style.scrollBehavior;
+                el.style.scrollBehavior = 'auto';
+                el.scrollTop = el.scrollHeight;
+                if (orig) el.style.scrollBehavior = orig;
+                else el.style.removeProperty('scroll-behavior');
+              }
+            }
+          }
+
+          const bottomEl = document.querySelector(
+            'form, [class*="composer" i], footer, #prompt-textarea, .chat-input-editor, [class*="chat-input" i], [class*="bottom" i]'
+          );
+          if (bottomEl) {
+            try { bottomEl.scrollIntoView({ behavior: 'instant', block: 'end' }); } catch {}
+          }
+
+          const downBtns = document.querySelectorAll(
+            'button[aria-label*="bottom" i], button[aria-label*="scroll" i], button[aria-label*="向下" i], button[aria-label*="底部" i], [class*="scroll-to-bottom" i], [class*="scroll-bottom" i], [class*="scroll-down" i]'
+          );
+          for (const b of downBtns) {
+            if (b.offsetParent !== null || b.offsetWidth > 0) {
+              try { b.click(); } catch {}
+            }
+          }
+        } catch {}
+      })()`,
+      true,
+    );
+  } catch {}
 }
 
 async function scrapeLatestAssistantResponse(
@@ -1300,6 +1511,7 @@ async function extractLatestAssistantResponse(
   win: BrowserWindow,
   target: WebChatTarget,
 ): Promise<string | null> {
+  await scrollChatWindowToBottom(win, target);
   const previousClipboard = await clipboard.readText();
   // 1. Scrape the DOM first to establish a reliable baseline of the full message
   const scraped = await scrapeLatestAssistantResponse(win, target);
@@ -1372,10 +1584,18 @@ export async function scrapeWebChatResponse(
   }
 
   const text = await extractLatestAssistantResponse(win, targetObj);
-  if (!text || text.trim() === "") {
+  const trimmed = text ? text.trim() : "";
+  if (!text || !trimmed) {
     return {
       ok: false,
       error: `No response found in ${targetObj.label}.`,
+    };
+  }
+
+  if (/^<!doctype\s+html/i.test(trimmed) || /<html[\s>]/i.test(trimmed)) {
+    return {
+      ok: false,
+      error: `${targetObj.label} displayed an HTML challenge/login page. Please check the chat window to solve it.`,
     };
   }
 
@@ -1452,13 +1672,14 @@ async function deliverPrompt(
       };
     }
 
-    const scraped = typeof raw.text === "string" ? raw.text : "";
+    const scraped = typeof raw.text === "string" ? raw.text.trim() : "";
 
     if (raw.stable === true) {
       try {
         const fromClipboard = await readReplyViaCopy(win, target, scraped);
-        if (fromClipboard) {
+        if (fromClipboard && fromClipboard.trim().length > 0) {
           lastCopiedResponses.set(target.id, fromClipboard);
+          void scrollChatWindowToBottom(win, target);
           return { ok: true, text: fromClipboard };
         }
       } catch {
@@ -1466,7 +1687,22 @@ async function deliverPrompt(
       }
     }
 
+    if (/^<!doctype\s+html/i.test(scraped) || /<html[\s>]/i.test(scraped)) {
+      return {
+        ok: false,
+        error: `${target.label} returned an HTML document/challenge page instead of chat text. Please check the chat window to solve any login or captcha challenge.`,
+      };
+    }
+
+    if (!scraped) {
+      return {
+        ok: false,
+        error: `No response found in ${target.label}. Please try again later.`,
+      };
+    }
+
     lastCopiedResponses.set(target.id, scraped);
+    void scrollChatWindowToBottom(win, target);
     return { ok: true, text: scraped };
   } catch (error) {
     return { ok: false, error: `${target.label}: ${describe(error)}` };
@@ -1474,6 +1710,7 @@ async function deliverPrompt(
     idleStreakCounts.set(target.id, IDLE_CONFIRMATION_THRESHOLD);
     generationObserved.set(target.id, false);
     if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      void scrollChatWindowToBottom(win, target);
       win.webContents
         .executeJavaScript(
           'window.__AnythingButProPlanWebChatStatus = "idle";',
@@ -1714,9 +1951,6 @@ export async function sendDocumentToWebChat(
     };
   }
 
-  if (win.isMinimized()) win.restore();
-  win.showInactive();
-
   const attached = await attachFile(win, target, documentPath);
   if (attached) {
     const sawIndicator = await waitForUploadSettle(win, target);
@@ -1726,10 +1960,6 @@ export async function sendDocumentToWebChat(
   }
 
   const result = await deliverPrompt(win, target, prompt);
-  if (!win.isDestroyed() && !result.ok) {
-    win.show();
-    win.focus();
-  }
   return { ...result, attached };
 }
 
@@ -1738,8 +1968,11 @@ export async function openWebChat(targetId: WebChatTargetId): Promise<void> {
   const target = findTarget(targetId);
   if (!target) return;
   const win = await ensureWindow(target);
-  win.show();
-  win.focus();
+  if (!win.isDestroyed()) {
+    win.show();
+    win.focus();
+    void scrollChatWindowToBottom(win, target);
+  }
   void pollOpenWindowsStatus();
 }
 
@@ -1777,6 +2010,7 @@ export function cancelWebChat(): void {
  * destroyed reference.
  */
 export function closeAllWebChatWindows(): void {
+  cancelWebChat();
   if (liveStatusTimer !== null) {
     clearTimeout(liveStatusTimer);
     liveStatusTimer = null;

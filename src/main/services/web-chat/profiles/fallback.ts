@@ -15,23 +15,30 @@ export function createFallbackProfile(
       'textarea#chat-input',
       'textarea[placeholder]',
       'div[contenteditable="true"]',
+      'textarea',
     ],
     sendSelectors: overrides?.sendSelectors ?? [
       'button[type="submit"]',
       'button[aria-label*="Send" i]',
+      'button[aria-label*="发送" i]',
       'div[role="button"][aria-label*="Send" i]',
     ],
     responseSelectors: overrides?.responseSelectors ?? [
       'div[class*="markdown"]',
       '[data-message-author-role="assistant"]',
+      'div.markdown',
+      'article',
     ],
     stopSelectors: overrides?.stopSelectors ?? [
       'button[aria-label*="Stop" i]',
+      'button[aria-label*="停止" i]',
       'div[role="button"][aria-label*="Stop" i]',
     ],
     copySelectors: overrides?.copySelectors ?? [
       'button[aria-label*="Copy" i]',
+      'button[aria-label*="复制" i]',
       'div[role="button"][aria-label*="Copy" i]',
+      'div.simple-button',
     ],
     fileSelectors: overrides?.fileSelectors ?? ['input[type="file"]'],
 
@@ -46,25 +53,50 @@ export function createFallbackProfile(
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
       } else {
-        const sel = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(input);
-        sel.removeAllRanges();
-        sel.addRange(range);
-        document.execCommand('insertText', false, ${promptVarName});
-        input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${promptVarName} }));
-        if (!input.textContent || input.textContent.trim().length === 0) {
-          input.innerText = ${promptVarName};
-          input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${promptVarName} }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
+        try {
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(input);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (e) {}
+
+        try {
+          const dt = new DataTransfer();
+          dt.setData('text/plain', ${promptVarName});
+          const pasteEvent = new ClipboardEvent('paste', {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: dt,
+          });
+          input.dispatchEvent(pasteEvent);
+        } catch (e) {}
+
+        try {
+          document.execCommand('insertText', false, ${promptVarName});
+        } catch (e) {}
+
+        const currentText = (input.textContent || '').trim();
+        if (!currentText || currentText === '') {
+          input.textContent = ${promptVarName};
         }
+        try {
+          input.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: ${promptVarName} }));
+          input.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: ${promptVarName} }));
+        } catch (e) {}
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
       }
     `,
 
     getSubmitScript: () => `
       const sendBtn = queryFirst(sendSels);
-      const canClick = sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true';
+      const canClick = sendBtn && !sendBtn.disabled && !sendBtn.classList.contains('disabled') && sendBtn.getAttribute('aria-disabled') !== 'true';
       if (canClick) {
+        try { sendBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); } catch {}
+        try { sendBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); } catch {}
+        try { sendBtn.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })); } catch {}
+        try { sendBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true })); } catch {}
         sendBtn.click();
       } else {
         const fire = (type) => input.dispatchEvent(new KeyboardEvent(type, {
@@ -85,7 +117,7 @@ export function createFallbackProfile(
       for (const b of btns) {
         if (b.offsetParent === null) continue;
         const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')).toLowerCase();
-        if (/\\bstop\\b/.test(label)) return true;
+        if (/\\b(stop|停止)\\b/.test(label)) return true;
       }
       return false;
     `,
@@ -97,7 +129,7 @@ export function createFallbackProfile(
         if (b.disabled || b.getAttribute('aria-disabled') === 'true') continue;
         const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '') + ' ' + (b.textContent || '')).trim().toLowerCase();
         if (/google|apple|github|email|account|login|sign in|sign up|cookie|policy|terms/i.test(label)) continue;
-        if (/\\b(continue|resume|keep going)\\b/i.test(label)) return b;
+        if (/\\b(continue|resume|keep going|继续)\\b/i.test(label)) return b;
       }
       return null;
     `,
@@ -108,7 +140,7 @@ export function createFallbackProfile(
       );
       for (const el of els) {
         if (el.offsetParent !== null) {
-          if (el.closest('nav, aside, [role="navigation"], [class*="sidebar" i], [class*="history" i]')) continue;
+          if (el.closest('nav, aside, [role="navigation"], [class*="sidebar" i], [class*="history" i], form, [class*="composer" i]')) continue;
           return true;
         }
       }
@@ -121,4 +153,3 @@ export function createFallbackProfile(
     ...overrides,
   }
 }
-

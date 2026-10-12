@@ -91,7 +91,7 @@ describe('Session Persistence and Defaults', () => {
       title: 'Session 2',
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      targetId: 'chatgpt',
+      targetId: 'qwen',
       workspacePath: '/test/path',
       autoApprove: false,
       status: 'idle',

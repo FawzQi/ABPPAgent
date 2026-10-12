@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { ToolCallParser } from '../../src/main/services/agent/parser'
 import { buildSystemPrompt } from '../../src/main/services/agent/prompt'
-import { AgentDoubtDetector, AgentIntentDetector } from '../../src/main/services/agent/orchestrator'
+import { AgentDoubtDetector, AgentIntentDetector, AgentOrchestrator } from '../../src/main/services/agent/orchestrator'
+import { SessionRepository } from '../../src/main/services/db/repository'
+import type { Session } from '../../src/shared/types'
+import { DEFAULT_AGENT_DELAYS_CONFIG, DEFAULT_CUSTOM_TOOLS_CONFIG } from '../../src/shared/types'
 
 describe('Agent Orchestration Flow', () => {
   it('builds system prompt with workspace path', () => {
@@ -153,5 +156,36 @@ I will list the directory and search for usages in parallel.
     expect(prompt).toContain('"tool_call_name": "finish"')
     expect(prompt).toContain('For a single tool call:')
     expect(prompt).toContain('PROJECT CONTEXT INFO')
+  })
+
+  it('sanitizes stale running sessions to idle on startup', () => {
+    const testSession: Session = {
+      id: 'test_zombie_session',
+      title: 'Zombie Session',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      targetId: 'deepseek',
+      workspacePath: '/test/workspace',
+      autoApprove: false,
+      delays: { ...DEFAULT_AGENT_DELAYS_CONFIG },
+      customTools: { ...DEFAULT_CUSTOM_TOOLS_CONFIG },
+      status: 'running',
+    }
+
+    SessionRepository.saveSession(testSession)
+    expect(SessionRepository.getSessionById('test_zombie_session')?.status).toBe('running')
+
+    SessionRepository.sanitizeSessionsOnStartup()
+    expect(SessionRepository.getSessionById('test_zombie_session')?.status).toBe('idle')
+
+    // Clean up
+    SessionRepository.deleteSession('test_zombie_session')
+  })
+
+  it('provides AgentOrchestrator.abortAll() to stop all active sessions', () => {
+    expect(typeof AgentOrchestrator.abortAll).toBe('function')
+    expect(typeof AgentOrchestrator.hasActiveSession).toBe('function')
+    expect(AgentOrchestrator.hasActiveSession('non_existent')).toBe(false)
+    expect(() => AgentOrchestrator.abortAll()).not.toThrow()
   })
 })

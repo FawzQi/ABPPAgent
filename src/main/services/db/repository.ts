@@ -57,6 +57,21 @@ export class SessionRepository {
     return path.join(getStorageDir(), `modified_${sessionId}.json`)
   }
 
+  static sanitizeSessionsOnStartup(): void {
+    const list = readJsonSafe<Session[]>(this.getSessionsFilePath(), [])
+    let changed = false
+    const sanitized = list.map((session) => {
+      if (session.status === 'running') {
+        changed = true
+        return { ...session, status: 'idle' as const }
+      }
+      return session
+    })
+    if (changed) {
+      writeJsonAtomic(this.getSessionsFilePath(), sanitized)
+    }
+  }
+
   static getSessions(): Session[] {
     const list = readJsonSafe<Session[]>(this.getSessionsFilePath(), [])
     return list.sort((a, b) => b.updatedAt - a.updatedAt)

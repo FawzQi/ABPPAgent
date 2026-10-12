@@ -679,6 +679,10 @@ export class AgentOrchestrator {
     if (pending) pending.resolve(answer)
   }
 
+  static hasActiveSession(sessionId: string): boolean {
+    return this.activeSessions.has(sessionId)
+  }
+
   static abortAgent(sessionId: string): void {
     cancelWebChat()
     const session = this.activeSessions.get(sessionId)
@@ -689,5 +693,30 @@ export class AgentOrchestrator {
     // Unblock a loop waiting on approval / ask_user so it can observe the abort
     for (const [id, p] of this.pendingApprovals) if (p.sessionId === sessionId) p.resolve(false)
     for (const [id, p] of this.pendingUserInputs) if (p.sessionId === sessionId) p.resolve('')
+  }
+
+  static abortAll(): void {
+    cancelWebChat()
+    for (const [sessionId, session] of this.activeSessions) {
+      session.abortController.abort()
+      const s = SessionRepository.getSessionById(sessionId)
+      if (s && s.status === 'running') {
+        s.status = 'idle'
+        const stopItem: TimelineItem = {
+          id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          sessionId,
+          role: 'assistant',
+          content: '⏹ Stopped on application exit.',
+          timestamp: Date.now(),
+        }
+        SessionRepository.saveTimelineItem(stopItem)
+        SessionRepository.saveSession(s)
+      }
+    }
+    this.activeSessions.clear()
+    for (const [, p] of this.pendingApprovals) p.resolve(false)
+    this.pendingApprovals.clear()
+    for (const [, p] of this.pendingUserInputs) p.resolve('')
+    this.pendingUserInputs.clear()
   }
 }

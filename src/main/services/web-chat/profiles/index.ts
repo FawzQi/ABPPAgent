@@ -1,19 +1,19 @@
 import type { WebChatTargetId } from '@shared/types'
 import type { WebChatProfile } from './types'
 import { deepseekProfile } from './deepseek'
-import { chatgptProfile } from './chatgpt'
-import { geminiProfile } from './gemini'
+import { qwenProfile } from './qwen'
+import { glmProfile } from './glm'
 import { createFallbackProfile } from './fallback'
 
 export * from './types'
 export { deepseekProfile } from './deepseek'
-export { chatgptProfile } from './chatgpt'
-export { geminiProfile } from './gemini'
+export { qwenProfile } from './qwen'
+export { glmProfile } from './glm'
 
 export const WEB_CHAT_PROFILES: Record<string, WebChatProfile> = {
   deepseek: deepseekProfile,
-  chatgpt: chatgptProfile,
-  gemini: geminiProfile,
+  qwen: qwenProfile,
+  glm: glmProfile,
 }
 
 export function getWebChatProfile(targetId: WebChatTargetId | string): WebChatProfile {

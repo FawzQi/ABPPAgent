@@ -2,6 +2,8 @@ import { app, BrowserWindow, shell } from 'electron'
 import path from 'node:path'
 import { registerIpcHandlers } from './ipc'
 import { closeAllWebChatWindows } from './services/web-chat/web-chat-service'
+import { AgentOrchestrator } from './services/agent/orchestrator'
+import { SessionRepository } from './services/db/repository'
 
 // Strip automation flags so web LLM sites don't flag navigator.webdriver
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled')
@@ -46,8 +48,15 @@ function createMainWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  SessionRepository.sanitizeSessionsOnStartup()
   registerIpcHandlers()
   mainWindow = createMainWindow()
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    AgentOrchestrator.abortAll()
+    closeAllWebChatWindows()
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -56,9 +65,29 @@ app.whenReady().then(() => {
   })
 })
 
+app.on('before-quit', () => {
+  AgentOrchestrator.abortAll()
+  closeAllWebChatWindows()
+})
+
 app.on('window-all-closed', () => {
+  AgentOrchestrator.abortAll()
   closeAllWebChatWindows()
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+process.on('SIGINT', () => {
+  AgentOrchestrator.abortAll()
+  closeAllWebChatWindows()
+  app.quit()
+  process.exit(0)
+})
+
+process.on('SIGTERM', () => {
+  AgentOrchestrator.abortAll()
+  closeAllWebChatWindows()
+  app.quit()
+  process.exit(0)
 })

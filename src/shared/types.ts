@@ -1,4 +1,4 @@
-export type WebChatTargetId = 'deepseek' | 'chatgpt' | 'gemini'
+export type WebChatTargetId = 'deepseek' | 'qwen' | 'glm'
 
 export type WebChatStatus = 'idle' | 'working' | 'paused' | 'error' | 'disconnected'
 

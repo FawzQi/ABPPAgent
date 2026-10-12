@@ -51,7 +51,7 @@ const DOMAIN_SYNONYMS: Record<string, string[]> = {
   ai: ['llm', 'model', 'provider', 'prompt', 'completion', 'chat', 'webchat'],
   llm: ['ai', 'model', 'provider', 'chat', 'deepseek', 'groq', 'openai'],
   chat: ['webchat', 'conversation', 'prompt', 'message', 'reply', 'response'],
-  webchat: ['chat', 'window', 'deepseek', 'chatgpt', 'browser', 'target'],
+  webchat: ['chat', 'window', 'deepseek', 'qwen', 'glm', 'browser', 'target'],
   prompt: ['instruction', 'template', 'builder', 'query', 'input'],
   file: ['path', 'fs', 'document', 'entry', 'tree'],
   folder: ['dir', 'directory', 'path', 'folder'],
