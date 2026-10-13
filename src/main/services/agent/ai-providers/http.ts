@@ -7,14 +7,11 @@ export async function httpFetch(
   init: RequestInit = {},
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<Response> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    const fetchFn = typeof net !== 'undefined' && typeof net.fetch === 'function' ? net.fetch : fetch
-    return await fetchFn(url, { ...init, signal: controller.signal })
-  } finally {
-    clearTimeout(timer)
-  }
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])
+    : AbortSignal.timeout(timeoutMs)
+  const fetchFn = typeof net !== 'undefined' && typeof net.fetch === 'function' ? net.fetch : fetch
+  return fetchFn(url, { ...init, signal })
 }
 
 export function describeFetchError(

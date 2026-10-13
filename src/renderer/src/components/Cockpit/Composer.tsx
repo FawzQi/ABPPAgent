@@ -1,14 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Send, Square, Sparkles } from 'lucide-react'
+import { Send, Square, Sparkles, FolderOpen } from 'lucide-react'
 import { useSessionStore } from '../../stores/session-store'
 
 export const Composer: React.FC = () => {
   const [text, setText] = useState('')
   const [suggestEnabled, setSuggestEnabled] = useState(true)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { activeSession, sendUserMessage, abortAgent } = useSessionStore()
+  const { activeSession, workspacePath, setWorkspacePath, sendUserMessage, abortAgent } = useSessionStore()
 
   const isRunning = activeSession?.status === 'running'
+
+  const handleSelectFolder = async () => {
+    if (!window.agentApi) return
+    const folder = await window.agentApi.selectWorkspaceFolder()
+    if (folder) {
+      setWorkspacePath(folder)
+      if (activeSession) {
+        await window.agentApi.updateSessionSettings(activeSession.id, { workspacePath: folder })
+      }
+    }
+  }
 
   // Fetch file suggestion settings
   useEffect(() => {
@@ -62,6 +73,16 @@ export const Composer: React.FC = () => {
     <div className="border-t border-[#2c3038] bg-[#16181d] p-3">
       {/* Quick Action Pills */}
       <div className="flex items-center gap-2 mb-2 overflow-x-visible text-[11px]">
+        {/* Workspace Path Picker */}
+        <button
+          onClick={handleSelectFolder}
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded cursor-pointer transition border text-[11px] select-none bg-[#1e2127] text-slate-300 hover:text-slate-100 border-[#2c3038] hover:bg-[#2a2f38] max-w-xs truncate"
+          title={workspacePath ? `Workspace: ${workspacePath} (click to change)` : 'Click to select workspace folder'}
+        >
+          <FolderOpen size={11} className="text-amber-400 shrink-0" />
+          <span className="truncate">{workspacePath || 'Select workspace...'}</span>
+        </button>
+
         {/* File Suggestion Toggle */}
         <button
           onClick={handleToggleSuggest}

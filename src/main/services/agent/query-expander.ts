@@ -1,7 +1,7 @@
 import type { AiProviderId } from '@shared/types'
 import { getProvider } from './ai-providers'
 
-const STOPWORDS = new Set([
+export const STOPWORDS = new Set([
   'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and',
   'any', 'are', 'aren\'t', 'as', 'at', 'be', 'because', 'been', 'before', 'being',
   'below', 'between', 'both', 'but', 'by', 'can', 'can\'t', 'cannot', 'could',
@@ -21,7 +21,10 @@ const STOPWORDS = new Set([
   'sure', 'actually', 'properly', 'code',
 ])
 
-const DOMAIN_SYNONYMS: Record<string, string[]> = {
+export const DOMAIN_SYNONYMS: Record<string, string[]> = {
+  agent: ['orchestrator', 'session', 'loop', 'parser', 'prompt'],
+  nav: ['navbar', 'header', 'sidebar', 'menu', 'tabs'],
+  tool: ['action', 'function', 'card', 'runner', 'command'],
   login: ['auth', 'signin', 'session', 'token', 'credential'],
   logout: ['signout', 'session', 'auth'],
   auth: ['login', 'signin', 'session', 'token', 'permission'],

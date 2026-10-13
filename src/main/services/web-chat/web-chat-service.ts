@@ -235,6 +235,8 @@ function setStatus(target: WebChatTargetId, status: WebChatStatus): void {
 
 const windows = new Map<WebChatTargetId, BrowserWindow>();
 const generationObserved = new Map<WebChatTargetId, boolean>();
+const lastCopiedResponses = new Map<WebChatTargetId, string>();
+const lastScrapedResponses = new Map<WebChatTargetId, string>();
 
 /** @internal test helper */
 export function _setWindowForTest(
@@ -247,6 +249,8 @@ export function _setWindowForTest(
     windows.delete(targetId);
     idleStreakCounts.delete(targetId);
     generationObserved.delete(targetId);
+    lastCopiedResponses.delete(targetId);
+    lastScrapedResponses.delete(targetId);
   }
 }
 
@@ -311,13 +315,21 @@ function buildStatusInspectionScript(profile: WebChatProfile): string {
       if (isVisible(last)) {
         const text = (last.textContent || '').trim();
         if (text.length > 0) {
-          if (window.__AnythingButProPlanLastObservedText !== undefined) {
-            if (text !== window.__AnythingButProPlanLastObservedText) {
+          if (window.__AnythingButProPlanLastObservedNode === undefined) {
+            window.__AnythingButProPlanLastObservedNode = last;
+            window.__AnythingButProPlanLastObservedText = text;
+          } else if (window.__AnythingButProPlanLastObservedNode !== last) {
+            window.__AnythingButProPlanLastObservedNode = last;
+            window.__AnythingButProPlanLastObservedText = text;
+            return 'working';
+          } else if (typeof window.__AnythingButProPlanLastObservedText === 'string') {
+            // Require text to grow noticeably to avoid false triggers on "Copy" -> "Copied" label changes or tooltip toggles
+            if (text.length > window.__AnythingButProPlanLastObservedText.length + 5) {
               window.__AnythingButProPlanLastObservedText = text;
               return 'working';
             }
+            window.__AnythingButProPlanLastObservedText = text;
           }
-          window.__AnythingButProPlanLastObservedText = text;
         }
       }
       break;
@@ -344,6 +356,8 @@ async function pollOpenWindowsStatus(): Promise<void> {
       windows.delete(targetId);
       idleStreakCounts.delete(targetId);
       generationObserved.delete(targetId);
+      lastCopiedResponses.delete(targetId);
+      lastScrapedResponses.delete(targetId);
       setStatus(targetId, "idle");
       continue;
     }
@@ -394,15 +408,6 @@ export async function _pollOpenWindowsStatusForTest(): Promise<void> {
 
 let liveStatusTimer: NodeJS.Timeout | null = null;
 
-function hasActiveWork(): boolean {
-  for (const targetId of windows.keys()) {
-    if (generationObserved.get(targetId) === true || statuses.get(targetId) === "working") {
-      return true;
-    }
-  }
-  return false;
-}
-
 async function runPollerCycle(): Promise<void> {
   await pollOpenWindowsStatus();
   if (windows.size === 0) {
@@ -412,19 +417,17 @@ async function runPollerCycle(): Promise<void> {
     }
     return;
   }
-  const delay = hasActiveWork() ? 1000 : 3000;
   liveStatusTimer = setTimeout(() => {
     void runPollerCycle();
-  }, delay);
+  }, STATUS_POLL_INTERVAL_MS);
   liveStatusTimer.unref?.();
 }
 
 function ensureStatusPoller(): void {
   if (liveStatusTimer !== null) return;
-  const delay = hasActiveWork() ? 1000 : 3000;
   liveStatusTimer = setTimeout(() => {
     void runPollerCycle();
-  }, delay);
+  }, STATUS_POLL_INTERVAL_MS);
   liveStatusTimer.unref?.();
 }
 
@@ -569,6 +572,8 @@ async function ensureWindow(target: WebChatTarget): Promise<BrowserWindow> {
     windows.delete(target.id);
     idleStreakCounts.delete(target.id);
     generationObserved.delete(target.id);
+    lastCopiedResponses.delete(target.id);
+    lastScrapedResponses.delete(target.id);
     setStatus(target.id, "idle");
     if (windows.size === 0 && liveStatusTimer !== null) {
       clearTimeout(liveStatusTimer);
@@ -1104,6 +1109,28 @@ function buildCollectCopyCandidatesScript(target: WebChatTarget): string {
       return /regenerat|retry|edit|share|like|dislike|thumb|report|delete|send|submit|重新生成|重试|编辑|分享|点赞|点踩|删除|发送/i.test(combined);
     };
 
+    const respSels = ${JSON.stringify(target.responseSelectors)};
+    let latestNode = null;
+    for (const sel of respSels) {
+      try {
+        const nodes = document.querySelectorAll(sel);
+        if (nodes && nodes.length > 0) {
+          latestNode = nodes[nodes.length - 1];
+          break;
+        }
+      } catch {}
+    }
+
+    if (!latestNode) {
+      window.__AnythingButProPlanCopyCandidates = [];
+      return 0;
+    }
+
+    const latestTurnContainer =
+      latestNode.closest('article, [data-message-role="assistant"], [data-message-author-role="assistant"], .chat-response-message, .chat-assistant, [class*="turn" i], [class*="item-assistant" i]') ||
+      latestNode.parentElement ||
+      latestNode;
+
     const copySels = ${JSON.stringify(
       target.copySelectors ?? [
         'button[aria-label*="Copy" i]',
@@ -1111,51 +1138,113 @@ function buildCollectCopyCandidatesScript(target: WebChatTarget): string {
       ],
     )};
 
-    const allButtons = document.querySelectorAll(
-      'button, [role="button"], .ds-icon-button, div.icon-button, div.simple-button, [class*="simple-button" i], [class*="copy-button" i], [data-testid*="copy" i]'
-    );
+    // Search roots: strictly inside latestTurnContainer and its immediate sibling/toolbar
+    const searchRoots = [latestTurnContainer];
+    if (latestTurnContainer.nextElementSibling) {
+      searchRoots.push(latestTurnContainer.nextElementSibling);
+    }
+    if (latestTurnContainer.parentElement) {
+      const parentToolbar = latestTurnContainer.parentElement.querySelector('[class*="action" i], [class*="footer" i], [class*="toolbar" i]');
+      if (parentToolbar && !searchRoots.includes(parentToolbar)) {
+        searchRoots.push(parentToolbar);
+      }
+    }
+
     const seen = new Set();
     const candidates = [];
 
-    // First: query target-configured copy selectors
-    for (const el of queryAll(copySels)) {
-      if (!el || seen.has(el) || !isVisible(el) || isForbidden(el)) continue;
-      seen.add(el);
-      candidates.push(el);
+    // First: query target-configured copy selectors within search roots
+    for (const root of searchRoots) {
+      for (const sel of copySels) {
+        try {
+          root.querySelectorAll(sel).forEach((el) => {
+            if (!el || seen.has(el) || !isVisible(el) || isForbidden(el)) return;
+            seen.add(el);
+            candidates.push(el);
+          });
+        } catch {}
+      }
     }
 
-    // Second: scan all buttons for copy / 复制 keywords or copy SVG icons
-    for (const b of allButtons) {
-      if (!b || seen.has(b) || !isVisible(b) || isForbidden(b)) continue;
-      const label = (b.getAttribute('aria-label') || '').trim();
-      const title = (b.getAttribute('title') || '').trim();
-      const text = (b.textContent || '').trim();
-      const cls = (typeof b.className === 'string' ? b.className : '').trim();
-      const combined = (label + ' ' + title + ' ' + text + ' ' + cls).toLowerCase();
+    // Second: scan buttons for copy / 复制 keywords within search roots
+    for (const root of searchRoots) {
+      try {
+        const btns = root.querySelectorAll('button, [role="button"], .ds-icon-button, div.icon-button, div.simple-button, [class*="simple-button" i], [class*="copy-button" i], [data-testid*="copy" i]');
+        for (const b of btns) {
+          if (!b || seen.has(b) || !isVisible(b) || isForbidden(b)) continue;
+          const label = (b.getAttribute('aria-label') || '').trim();
+          const title = (b.getAttribute('title') || '').trim();
+          const text = (b.textContent || '').trim();
+          const cls = (typeof b.className === 'string' ? b.className : '').trim();
+          const combined = (label + ' ' + title + ' ' + text + ' ' + cls).toLowerCase();
 
-      let isMatch = combined.includes('copy') || combined.includes('复制') || combined.includes('拷贝');
-      if (!isMatch) {
-        const svgs = b.querySelectorAll('svg');
-        for (const s of svgs) {
-          const sUse = s.querySelector('use');
-          const useHref = sUse ? (sUse.getAttribute('href') || sUse.getAttribute('xlink:href') || '') : '';
-          const sCls = typeof s.className === 'string' ? s.className : (s.className?.baseVal || '');
-          const sLabel = ((s.getAttribute('aria-label') || '') + ' ' + (s.getAttribute('name') || '') + ' ' + useHref + ' ' + sCls).toLowerCase();
-          if (sLabel.includes('copy') || sLabel.includes('复制') || sLabel.includes('拷贝')) {
-            isMatch = true;
-            break;
+          let isMatch = combined.includes('copy') || combined.includes('复制') || combined.includes('拷贝');
+          if (!isMatch) {
+            const svgs = b.querySelectorAll('svg');
+            for (const s of svgs) {
+              const sUse = s.querySelector('use');
+              const useHref = sUse ? (sUse.getAttribute('href') || sUse.getAttribute('xlink:href') || '') : '';
+              const sCls = typeof s.className === 'string' ? s.className : (s.className?.baseVal || '');
+              const sLabel = ((s.getAttribute('aria-label') || '') + ' ' + (s.getAttribute('name') || '') + ' ' + useHref + ' ' + sCls).toLowerCase();
+              if (sLabel.includes('copy') || sLabel.includes('复制') || sLabel.includes('拷贝')) {
+                isMatch = true;
+                break;
+              }
+            }
+          }
+
+          if (isMatch) {
+            seen.add(b);
+            candidates.push(b);
           }
         }
-      }
+      } catch {}
+    }
 
-      if (isMatch) {
-        seen.add(b);
-        candidates.push(b);
+    // Fallback: If no candidate was found inside searchRoots, scan document buttons that appear at or after latestNode
+    if (candidates.length === 0) {
+      const allButtons = document.querySelectorAll(
+        'button, [role="button"], .ds-icon-button, div.icon-button, div.simple-button, [class*="simple-button" i], [class*="copy-button" i], [data-testid*="copy" i]'
+      );
+      for (const b of allButtons) {
+        if (!b || seen.has(b) || !isVisible(b) || isForbidden(b)) continue;
+        // Strictly reject buttons that precede the latest assistant turn in DOM order
+        const pos = b.compareDocumentPosition(latestNode);
+        if (pos & Node.DOCUMENT_POSITION_FOLLOWING) {
+          continue;
+        }
+
+        const label = (b.getAttribute('aria-label') || '').trim();
+        const title = (b.getAttribute('title') || '').trim();
+        const text = (b.textContent || '').trim();
+        const cls = (typeof b.className === 'string' ? b.className : '').trim();
+        const combined = (label + ' ' + title + ' ' + text + ' ' + cls).toLowerCase();
+
+        let isMatch = combined.includes('copy') || combined.includes('复制') || combined.includes('拷贝');
+        if (!isMatch) {
+          const svgs = b.querySelectorAll('svg');
+          for (const s of svgs) {
+            const sUse = s.querySelector('use');
+            const useHref = sUse ? (sUse.getAttribute('href') || sUse.getAttribute('xlink:href') || '') : '';
+            const sCls = typeof s.className === 'string' ? s.className : (s.className?.baseVal || '');
+            const sLabel = ((s.getAttribute('aria-label') || '') + ' ' + (s.getAttribute('name') || '') + ' ' + useHref + ' ' + sCls).toLowerCase();
+            if (sLabel.includes('copy') || sLabel.includes('复制') || sLabel.includes('拷贝')) {
+              isMatch = true;
+              break;
+            }
+          }
+        }
+
+        if (isMatch) {
+          seen.add(b);
+          candidates.push(b);
+        }
       }
     }
 
     const isCodeBlockControl = (el) => {
       if (!el) return true;
+      if (typeof el.className === 'string' && /copy-code|code-copy/i.test(el.className)) return true;
       // 1. Inside pre, code, or syntax highlighter / code block wrapper
       if (el.closest('pre, code, [class*="code-block" i], [class*="codeblock" i], [class*="highlight" i], [class*="code-header" i], [class*="code-toolbar" i], [class*="code_header" i], [class*="code-box" i], [class*="codebox" i]')) {
         return true;
@@ -1187,7 +1276,13 @@ function buildCollectCopyCandidatesScript(target: WebChatTarget): string {
     };
 
     const outerPool = candidates.filter((el) => !isCodeBlockControl(el));
-    outerPool.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    outerPool.sort((a, b) => {
+      if (a === b) return 0;
+      const pos = a.compareDocumentPosition(b);
+      if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
     const final = outerPool;
 
     window.__AnythingButProPlanCopyCandidates = final;
@@ -1265,6 +1360,25 @@ async function clickCopyCandidate(
   }
 }
 
+function matchesScrapedBaseline(
+  candidateText: string,
+  baseline?: string | null,
+): boolean {
+  if (!baseline || baseline.trim().length === 0) return true;
+  if (!candidateText || candidateText.trim().length === 0) return false;
+  if (baseline.trim().length < 30) return true;
+  const normBase = baseline.replace(/[\s#*`_~>\-[\]()]/g, "").toLowerCase();
+  const normCand = candidateText.replace(/[\s#*`_~>\-[\]()]/g, "").toLowerCase();
+  if (normBase.length < 30 || normCand.length < 30) return true;
+  const startAnchor = normBase.slice(0, 30);
+  const endAnchor = normBase.slice(-30);
+  return (
+    normCand.includes(startAnchor) ||
+    normCand.includes(endAnchor) ||
+    normBase.includes(normCand.slice(0, 30))
+  );
+}
+
 /**
  * Ask the site to copy its reply, click the message-level "Copy" control,
  * and read the result back from in-memory capture or the OS clipboard.
@@ -1313,6 +1427,7 @@ async function readReplyViaCopy(
     }
 
     if (!candidateText || candidateText === sentinel) continue;
+    if (!matchesScrapedBaseline(candidateText, scrapedBaseline)) continue;
     sawAnyCopy = true;
 
     if (candidateText.length > best.length) {
@@ -1361,7 +1476,12 @@ async function readReplyViaCopy(
             candidateText = textFromClipboard;
           }
         }
-        if (candidateText && candidateText !== sentinel && candidateText.length > best.length) {
+        if (
+          candidateText &&
+          candidateText !== sentinel &&
+          matchesScrapedBaseline(candidateText, scrapedBaseline) &&
+          candidateText.length > best.length
+        ) {
           best = candidateText;
           break;
         }
@@ -1377,9 +1497,10 @@ async function readReplyViaCopy(
     const missingFiles =
       scrapedBaseline.includes("===Files===") && !best.includes("===Files===");
     const tooShort = best.length < scrapedLen * 0.7;
+    const matchesContent = matchesScrapedBaseline(best, scrapedBaseline);
 
-    if (missingExplanation || missingFiles || tooShort) {
-      // The copied text is only a partial snippet/fragment. Reject in favor of scraped baseline!
+    if (missingExplanation || missingFiles || tooShort || !matchesContent) {
+      // The copied text is only a partial snippet/fragment or belongs to another turn. Reject in favor of scraped baseline!
       best = "";
     }
   }
@@ -1428,15 +1549,9 @@ function buildScrapeLatestAssistantResponseScript(target: WebChatTarget): string
     };
 
     const nodes = queryTopLevelTurns(respSels);
-    let latestText = '';
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const t = cleanAssistantText(nodes[i]);
-      if (t && t.length > 0) {
-        latestText = t;
-        break;
-      }
-    }
-    return latestText;
+    if (!nodes || nodes.length === 0) return '';
+    const lastNode = nodes[nodes.length - 1];
+    return cleanAssistantText(lastNode) || '';
   })()`;
 }
 
@@ -1528,7 +1643,6 @@ async function extractLatestAssistantResponse(
   return text && text.trim().length > 0 ? text : null;
 }
 
-const lastCopiedResponses = new Map<WebChatTargetId, string>();
 const extractingTargets = new Set<WebChatTargetId>();
 
 export async function autoCopyLatestResponse(
@@ -1548,8 +1662,23 @@ export async function autoCopyLatestResponse(
     await new Promise((resolve) => setTimeout(resolve, 500));
     if (win.isDestroyed() || win.webContents.isDestroyed()) return null;
 
-    const text = await extractLatestAssistantResponse(win, targetObj);
-    if (!text || text.trim() === "") return null;
+    // 1. Scrape first without clicking buttons or touching OS clipboard
+    const scraped = await scrapeLatestAssistantResponse(win, targetObj);
+    if (!scraped || scraped.trim().length === 0) return null;
+
+    const prevCopied = lastCopiedResponses.get(targetId);
+    const prevScraped = lastScrapedResponses.get(targetId);
+    if (scraped === prevScraped || (prevCopied && matchesScrapedBaseline(prevCopied, scraped))) {
+      return null;
+    }
+    lastScrapedResponses.set(targetId, scraped);
+
+    // 2. Try copying via button, or fall back to scraped
+    await scrollChatWindowToBottom(win, targetObj);
+    let text = await readReplyViaCopy(win, targetObj, scraped);
+    if (!text || text.trim().length === 0) {
+      text = scraped;
+    }
 
     if (lastCopiedResponses.get(targetId) === text) return null;
     lastCopiedResponses.set(targetId, text);
@@ -1599,6 +1728,7 @@ export async function scrapeWebChatResponse(
     };
   }
 
+  lastScrapedResponses.set(targetId, text);
   lastCopiedResponses.set(targetId, text);
   try {
     await clipboard.writeText(text);
@@ -1678,6 +1808,7 @@ async function deliverPrompt(
       try {
         const fromClipboard = await readReplyViaCopy(win, target, scraped);
         if (fromClipboard && fromClipboard.trim().length > 0) {
+          lastScrapedResponses.set(target.id, scraped);
           lastCopiedResponses.set(target.id, fromClipboard);
           void scrollChatWindowToBottom(win, target);
           return { ok: true, text: fromClipboard };
@@ -1701,6 +1832,7 @@ async function deliverPrompt(
       };
     }
 
+    lastScrapedResponses.set(target.id, scraped);
     lastCopiedResponses.set(target.id, scraped);
     void scrollChatWindowToBottom(win, target);
     return { ok: true, text: scraped };

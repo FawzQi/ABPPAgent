@@ -7,7 +7,7 @@ import type { ToolResult } from '@shared/types'
 export function getExtendedEnv(): NodeJS.ProcessEnv {
   const home = process.env.HOME || ''
   const extraPaths = [
-    path.join(home, '.nvm/versions/node/v24.15.0/bin'),
+    path.dirname(process.execPath),
     path.join(home, '.local/bin'),
     '/usr/local/bin',
     '/usr/bin',

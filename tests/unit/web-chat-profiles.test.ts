@@ -46,7 +46,9 @@ describe('Web Chat Provider Profiles', () => {
     expect(profile.inputSelectors).toContain('textarea.message-input-textarea')
     expect(profile.sendSelectors).toContain('button.send-button:not(.disabled)')
     expect(profile.stopSelectors).toContain('button.stop-button')
+    expect(profile.stopSelectors).toContain('button[aria-label*="停止" i]')
     expect(profile.copySelectors).toContain('button.copy-response-button')
+    expect(profile.responseSelectors[0]).toContain('.chat-response-message')
 
     const injectScript = profile.getInjectPromptScript('testPrompt')
     expect(injectScript).toContain('HTMLTextAreaElement.prototype')
@@ -68,6 +70,9 @@ describe('Web Chat Provider Profiles', () => {
     expect(profile.responseSelectors).toContain('div.chat-assistant')
     expect(profile.responseSelectors).toContain('div.markdown-prose')
     expect(profile.responseSelectors).toContain('div.markdown')
+    expect(profile.responseSelectors[0]).toContain('[data-message-role="assistant"]')
+    expect(profile.copySelectors).not.toContain('button.copy-code-button')
+    expect(profile.copySelectors).toContain('button[aria-label="Copy"]')
 
     const injectScript = profile.getInjectPromptScript('testPrompt')
     expect(injectScript).toContain('HTMLTextAreaElement.prototype')

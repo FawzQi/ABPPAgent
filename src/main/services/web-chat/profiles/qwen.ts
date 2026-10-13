@@ -16,9 +16,9 @@ export const qwenProfile: WebChatProfile = {
     'button[aria-label*="Send" i]',
   ],
   responseSelectors: [
-    '.custom-qwen-markdown',
-    '.qwen-markdown',
-    '.response-message-content',
+    '.chat-response-message .custom-qwen-markdown',
+    '.chat-response-message .qwen-markdown',
+    '.chat-response-message .response-message-content',
     'div.chat-response-message',
     '.chat-response-message',
   ],
@@ -26,6 +26,9 @@ export const qwenProfile: WebChatProfile = {
     'button.stop-button',
     'button[aria-label="Stop"]',
     'button[aria-label*="Stop" i]',
+    'button[aria-label*="停止" i]',
+    'button[title*="Stop" i]',
+    'button[title*="停止" i]',
   ],
   copySelectors: [
     '.response-message-footer button[aria-label*="Copy" i]',
@@ -92,10 +95,13 @@ export const qwenProfile: WebChatProfile = {
 
   getIsBusyScript: () => `
     const els = document.querySelectorAll(
-      '.ant-spin, .animate-spin, svg[class*="spin" i], .qwen-chat-thinking-status-card-loading'
+      '.qwen-chat-thinking-status-card-loading, .chat-response-message .ant-spin, .chat-response-message .animate-spin, .chat-response-message svg[class*="spin" i]'
     );
     for (const el of els) {
-      if (el.offsetParent !== null) return true;
+      if (el.offsetParent !== null) {
+        if (el.closest('nav, aside, header, [role="navigation"], [class*="sidebar" i], [class*="history" i], [class*="user" i]')) continue;
+        return true;
+      }
     }
     return false;
   `,

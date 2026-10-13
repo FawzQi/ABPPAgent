@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react'
 import {
-  FolderOpen,
   ShieldCheck,
   ShieldAlert,
   PanelLeftClose,
@@ -23,7 +22,7 @@ import { DiffViewer } from './components/Inspector/DiffViewer'
 import { CustomToolsModal } from './components/Tools/CustomToolsModal'
 
 export const App: React.FC = () => {
-  const { init, activeSession, workspacePath, setWorkspacePath, toggleAutoApprove, abortAgent } = useSessionStore()
+  const { init, activeSession, toggleAutoApprove, abortAgent } = useSessionStore()
   const { openModal: openToolsModal } = useToolsStore()
 
   const [leftOpen, setLeftOpen] = useState(true)
@@ -32,17 +31,6 @@ export const App: React.FC = () => {
   useEffect(() => {
     init()
   }, [])
-
-  const handleSelectFolder = async () => {
-    if (!window.agentApi) return
-    const folder = await window.agentApi.selectWorkspaceFolder()
-    if (folder) {
-      setWorkspacePath(folder)
-      if (activeSession) {
-        await window.agentApi.updateSessionSettings(activeSession.id, { workspacePath: folder })
-      }
-    }
-  }
 
   const isRunning = activeSession?.status === 'running'
 
@@ -65,18 +53,6 @@ export const App: React.FC = () => {
             </div>
             <span className="font-semibold text-xs tracking-tight text-slate-100">ABPPAgent</span>
           </div>
-
-          <div className="h-4 w-px bg-[#2c3038]" />
-
-          {/* Workspace Path Picker */}
-          <button
-            onClick={handleSelectFolder}
-            className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-slate-100 bg-[#1e2127] hover:bg-[#2a2f38] border border-[#2c3038] px-2 py-1 rounded max-w-sm truncate transition cursor-pointer"
-            title="Click to change workspace folder"
-          >
-            <FolderOpen size={13} className="text-amber-400 shrink-0" />
-            <span className="truncate">{workspacePath || 'Select workspace...'}</span>
-          </button>
         </div>
 
         <div className="flex items-center gap-3">

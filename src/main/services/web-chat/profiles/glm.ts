@@ -21,12 +21,15 @@ export const glmProfile: WebChatProfile = {
     'button.send-button',
   ],
   responseSelectors: [
+    '[data-message-role="assistant"] .markdown-prose',
+    '[data-message-role="assistant"] .markdown',
+    '.chat-assistant .markdown-prose',
+    '.chat-assistant .markdown',
+    '[data-message-role="assistant"]',
+    '.chat-assistant',
+    'div.chat-assistant',
     'div.markdown-prose',
     'div.markdown',
-    '[data-message-role="assistant"] .markdown',
-    '[data-message-role="assistant"]',
-    '.chat-assistant .markdown',
-    'div.chat-assistant',
   ],
   stopSelectors: [
     'button[aria-label="Stop"]',
@@ -37,7 +40,6 @@ export const glmProfile: WebChatProfile = {
     'button[class*="stop" i]',
   ],
   copySelectors: [
-    'button.copy-code-button',
     'button[aria-label="Copy"]',
     'button[aria-label*="Copy" i]',
     'button[aria-label*="复制" i]',
@@ -114,11 +116,11 @@ export const glmProfile: WebChatProfile = {
 
   getIsBusyScript: () => `
     const els = document.querySelectorAll(
-      '.animate-spin, svg[class*="spin" i], [data-is-streaming="true"], .thinking-chain-container svg[class*="spin" i]'
+      '.chat-assistant .animate-spin, .chat-assistant svg[class*="spin" i], [data-message-role="assistant"] .animate-spin, [data-message-role="assistant"] svg[class*="spin" i], [data-is-streaming="true"], .thinking-chain-container svg[class*="spin" i]'
     );
     for (const el of els) {
       if (el.offsetParent !== null) {
-        if (el.closest('nav, aside, [role="navigation"], [class*="sidebar" i], [class*="history" i], form, [class*="composer" i]')) continue;
+        if (el.closest('nav, aside, header, [role="navigation"], [class*="sidebar" i], [class*="history" i], form, [class*="composer" i]')) continue;
         return true;
       }
     }

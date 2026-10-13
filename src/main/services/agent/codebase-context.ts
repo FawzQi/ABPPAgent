@@ -2,37 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { getFileSuggestionSettings, getApiKey } from './ai-settings'
-import { expandQueryLocally, expandQueryWithAi } from './query-expander'
+import { expandQueryLocally, expandQueryWithAi, STOPWORDS, DOMAIN_SYNONYMS } from './query-expander'
 import { buildSkeleton, buildImportGraph } from './codebase-map'
 import { scoreCandidatesWithJev } from './jev'
-
-const STOPWORDS = new Set([
-  'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and',
-  'any', 'are', 'as', 'at', 'be', 'because', 'been', 'before', 'being', 'below',
-  'between', 'both', 'but', 'by', 'can', 'could', 'did', 'do', 'does', 'doing',
-  'down', 'during', 'each', 'few', 'for', 'from', 'further', 'had', 'has', 'have',
-  'having', 'he', 'her', 'here', 'hers', 'him', 'his', 'how', 'i', 'if', 'in',
-  'into', 'is', 'it', 'its', 'let', 'me', 'more', 'most', 'my', 'no', 'nor', 'not',
-  'of', 'off', 'on', 'once', 'only', 'or', 'other', 'ought', 'our', 'out', 'over',
-  'own', 'same', 'she', 'should', 'so', 'some', 'such', 'than', 'that', 'the',
-  'their', 'theirs', 'them', 'then', 'there', 'these', 'they', 'this', 'those',
-  'through', 'to', 'too', 'under', 'until', 'up', 'very', 'was', 'we', 'were',
-  'what', 'when', 'where', 'which', 'while', 'who', 'whom', 'why', 'with', 'would',
-  'you', 'your', 'yours', 'make', 'want', 'need', 'please', 'app', 'code',
-])
-
-const DOMAIN_SYNONYMS: Record<string, string[]> = {
-  people: ['person', 'member', 'team', 'author', 'alumni', 'profile', 'staff', 'faculty'],
-  research: ['interest', 'publication', 'paper', 'project', 'lab', 'study'],
-  auth: ['login', 'signin', 'signout', 'session', 'token', 'user', 'credential'],
-  login: ['auth', 'signin', 'session', 'token'],
-  chat: ['message', 'conversation', 'prompt', 'webchat', 'stream'],
-  tool: ['action', 'function', 'card', 'runner', 'command'],
-  agent: ['orchestrator', 'session', 'loop', 'parser', 'prompt'],
-  diff: ['patch', 'compare', 'change', 'hunk', 'viewer'],
-  nav: ['navbar', 'header', 'sidebar', 'menu', 'tabs'],
-  tab: ['tabs', 'switcher', 'navigation', 'panel'],
-}
 
 const EXTENSION_LANGUAGES: Record<string, string> = {
   '.ts': 'typescript',

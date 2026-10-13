@@ -61,9 +61,7 @@ Parameters:
 Surgically replaces a specific block of text in an existing file.
 Parameters:
 {
-  "TargetFile": string,
-  "StartLine": number,
-  "EndLine": number,
+  "TargetFile": string, // path to file
   "TargetContent": string, // exact lines of code to replace
   "ReplacementContent": string // new replacement lines of code
 }`)
@@ -74,7 +72,7 @@ Parameters:
 Lists files and directories respecting .gitignore.
 Parameters:
 {
-  "DirectoryPath": string,
+  "DirectoryPath"?: string, // optional path to directory (defaults to workspace root)
   "Recursive"?: boolean, // default false
   "Depth"?: number // max depth when recursive
 }`)
