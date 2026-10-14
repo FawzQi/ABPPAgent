@@ -1,6 +1,10 @@
 import type { CustomToolsConfig } from '@shared/types'
 import { DEFAULT_CUSTOM_TOOLS_CONFIG } from '@shared/types'
-import { DEFAULT_BASE_PROMPT_TEMPLATE } from './base-prompt'
+import {
+  DEFAULT_BASE_PROMPT_TEMPLATE,
+  DEFAULT_PER_TURN_SUFFIX_TEMPLATE,
+  DEFAULT_RECOVERY_PROMPT_TEMPLATE,
+} from './base-prompt'
 
 export function getAvailableToolsList(
   customTools: CustomToolsConfig = DEFAULT_CUSTOM_TOOLS_CONFIG,
@@ -131,84 +135,52 @@ export function formatAvailableTools(
   return getAvailableToolsList(customTools).join('\n\n')
 }
 
-export function appendToolJsonFormatRule(prompt: string): string {
+export function appendToolJsonFormatRule(prompt: string, customSuffix?: string): string {
+  const suffix = customSuffix && customSuffix.trim().length > 0 ? customSuffix : DEFAULT_PER_TURN_SUFFIX_TEMPLATE
   const RULE_HEADER = '### Strict Response Requirement (MANDATORY)'
-  if (prompt.includes(RULE_HEADER)) return prompt
 
-  return `${prompt.trim()}
+  if (suffix.includes('{{prompt}}')) {
+    return suffix.replaceAll('{{prompt}}', prompt.trim()).trim()
+  }
 
----
-${RULE_HEADER}
-You MUST respond with a valid JSON tool call object (or a JSON array if batching multiple tools).
-Do NOT include conversational narration, explanations, or code outside the tool JSON format.
-Every response MUST follow this exact format:
-\`\`\`json
-{
-  "thought": "Brief step-by-step reasoning explaining what you are doing",
-  "tool_call_name": "<name of tool from AVAILABLE TOOLS>",
-  "parameter": { ... }
-}
-\`\`\`
+  if (suffix.includes(RULE_HEADER) && prompt.includes(RULE_HEADER)) {
+    return prompt
+  }
 
-If your task is complete and verified, you MUST invoke the "finish" tool:
-\`\`\`json
-{
-  "thought": "The requested task is complete and verified",
-  "tool_call_name": "finish",
-  "parameter": { "summary": "Concise summary of what was done" }
-}
-\`\`\`
-`
+  if (prompt.includes(suffix.trim())) {
+    return prompt
+  }
+
+  return `${prompt.trim()}\n\n${suffix.trim()}`
 }
 
 export function buildToolFormatWarningPrompt(
   customTools: CustomToolsConfig = DEFAULT_CUSTOM_TOOLS_CONFIG,
   details?: string,
+  customTemplate?: string,
 ): string {
   const toolsFormatted = formatAvailableTools(customTools)
+  const template =
+    customTemplate && customTemplate.trim().length > 0
+      ? customTemplate
+      : DEFAULT_RECOVERY_PROMPT_TEMPLATE
 
-  return `# WARNING: Response Must Be in Tools JSON Format!
+  let prompt = template
 
-Your previous response did NOT include a valid JSON tool call. You must reply strictly in the tools JSON format. Do not send conversational commentary without a tool call.
-${details ? `\nDetails: ${details}\n` : ''}
-## Required Response Format:
-\`\`\`json
-{
-  "thought": "Step-by-step reasoning explaining why you are invoking this tool",
-  "tool_call_name": "<tool_name>",
-  "parameter": { ... }
-}
-\`\`\`
-
-Or for multiple batched calls:
-\`\`\`json
-[
-  {
-    "thought": "First action reasoning",
-    "tool_call_name": "<tool_1>",
-    "parameter": { ... }
-  },
-  {
-    "thought": "Second action reasoning",
-    "tool_call_name": "<tool_2>",
-    "parameter": { ... }
+  const detailsFormatted = details ? `\nDetails: ${details}\n` : ''
+  if (prompt.includes('{{details}}')) {
+    prompt = prompt.replaceAll('{{details}}', detailsFormatted)
+  } else if (details && !prompt.includes(details)) {
+    prompt = `${prompt}\n\nDetails: ${details}`
   }
-]
-\`\`\`
 
-If the user's task is already complete or no more actions are needed, call the "finish" tool:
-\`\`\`json
-{
-  "thought": "The requested task is complete",
-  "tool_call_name": "finish",
-  "parameter": { "summary": "Description of work done" }
-}
-\`\`\`
+  if (prompt.includes('{{availableTools}}')) {
+    prompt = prompt.replaceAll('{{availableTools}}', toolsFormatted)
+  } else if (!prompt.includes(toolsFormatted)) {
+    prompt = `${prompt}\n\n## Complete Available Tools & Parameter Schemas:\n${toolsFormatted}`
+  }
 
-## Complete Available Tools & Parameter Schemas:
-${toolsFormatted}
-
-Please provide your response now in the required tool JSON format.`
+  return prompt.trim()
 }
 
 export function buildSystemPrompt(

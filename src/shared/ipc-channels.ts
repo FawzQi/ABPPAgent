@@ -44,7 +44,13 @@ export const IPC_CHANNELS = {
   SAVE_FILE_SUGGESTION_SETTINGS: 'agent:save-file-suggestion-settings',
   GET_AI_PROVIDERS: 'agent:get-ai-providers',
 
-  // Base Prompt
+  // Prompt Settings
+  GET_PROMPTS: 'agent:get-prompts',
+  SAVE_PROMPT: 'agent:save-prompt',
+  RESET_PROMPT: 'agent:reset-prompt',
+  RESET_ALL_PROMPTS: 'agent:reset-all-prompts',
+
+  // Base Prompt (backward compatibility)
   GET_BASE_PROMPT: 'agent:get-base-prompt',
   SAVE_BASE_PROMPT: 'agent:save-base-prompt',
   RESET_BASE_PROMPT: 'agent:reset-base-prompt',

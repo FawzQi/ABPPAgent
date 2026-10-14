@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import { dialog, ipcMain, BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
-import type { Session, WebChatTargetId, WebChatTargetInfo, CustomToolsConfig } from '@shared/types'
+import type { Session, WebChatTargetId, WebChatTargetInfo, CustomToolsConfig, PromptKey } from '@shared/types'
 import { DEFAULT_CUSTOM_TOOLS_CONFIG } from '@shared/types'
 import { SessionRepository } from './services/db/repository'
 import {
@@ -15,7 +15,15 @@ import { DirectoryExplorer } from './services/tools/explorer'
 import * as GitService from './services/git/git-service'
 import { getFileSuggestionSettings, saveFileSuggestionSettings } from './services/agent/ai-settings'
 import { listProviders } from './services/agent/ai-providers'
-import { getBasePrompt, saveBasePrompt, resetBasePrompt } from './services/agent/base-prompt'
+import {
+  getBasePrompt,
+  saveBasePrompt,
+  resetBasePrompt,
+  getAllPrompts,
+  savePrompt,
+  resetPrompt,
+  resetAllPrompts,
+} from './services/agent/base-prompt'
 import { clearSessionState } from './services/agent/workspace-state'
 
 export function registerIpcHandlers(): void {
@@ -249,7 +257,24 @@ export function registerIpcHandlers(): void {
     return listProviders()
   })
 
-  // 8. Base Prompt Settings
+  // 8. Prompt Settings
+  ipcMain.handle(IPC_CHANNELS.GET_PROMPTS, async () => {
+    return getAllPrompts()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.SAVE_PROMPT, async (_e, key: PromptKey, prompt: string) => {
+    return savePrompt(key, prompt)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.RESET_PROMPT, async (_e, key: PromptKey) => {
+    return resetPrompt(key)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.RESET_ALL_PROMPTS, async () => {
+    return resetAllPrompts()
+  })
+
+  // Legacy Base Prompt Settings
   ipcMain.handle(IPC_CHANNELS.GET_BASE_PROMPT, async () => {
     return getBasePrompt()
   })

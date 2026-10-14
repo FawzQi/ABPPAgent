@@ -3,9 +3,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   DEFAULT_BASE_PROMPT_TEMPLATE,
+  DEFAULT_PER_TURN_SUFFIX_TEMPLATE,
+  DEFAULT_RECOVERY_PROMPT_TEMPLATE,
   getBasePrompt,
   saveBasePrompt,
   resetBasePrompt,
+  getAllPrompts,
+  savePrompt,
+  resetPrompt,
+  resetAllPrompts,
 } from '../../src/main/services/agent/base-prompt'
 import { buildSystemPrompt } from '../../src/main/services/agent/prompt'
 import { getStorageDir } from '../../src/main/services/db/database'
@@ -13,50 +19,91 @@ import { DEFAULT_CUSTOM_TOOLS_CONFIG } from '../../src/shared/types'
 
 describe('base prompt service and template interpolation', () => {
   const promptFile = path.join(getStorageDir(), 'base-prompt.txt')
+  const jsonPromptFile = path.join(getStorageDir(), 'custom-prompts.json')
+
+  const cleanup = () => {
+    try {
+      if (fs.existsSync(promptFile)) fs.unlinkSync(promptFile)
+    } catch {}
+    try {
+      if (fs.existsSync(jsonPromptFile)) fs.unlinkSync(jsonPromptFile)
+    } catch {}
+  }
 
   beforeEach(() => {
-    try {
-      if (fs.existsSync(promptFile)) {
-        fs.unlinkSync(promptFile)
-      }
-    } catch {
-      // ignore
-    }
+    cleanup()
   })
 
   afterEach(() => {
-    try {
-      if (fs.existsSync(promptFile)) {
-        fs.unlinkSync(promptFile)
-      }
-    } catch {
-      // ignore
-    }
+    cleanup()
   })
 
-  it('contains placeholders in DEFAULT_BASE_PROMPT_TEMPLATE', () => {
+  it('contains placeholders in default templates', () => {
     expect(DEFAULT_BASE_PROMPT_TEMPLATE).toContain('{{workspacePath}}')
     expect(DEFAULT_BASE_PROMPT_TEMPLATE).toContain('{{projectContext}}')
     expect(DEFAULT_BASE_PROMPT_TEMPLATE).toContain('{{availableTools}}')
+    expect(DEFAULT_PER_TURN_SUFFIX_TEMPLATE).toContain('Strict Response Requirement (MANDATORY)')
+    expect(DEFAULT_RECOVERY_PROMPT_TEMPLATE).toContain('{{availableTools}}')
+    expect(DEFAULT_RECOVERY_PROMPT_TEMPLATE).toContain('{{details}}')
   })
 
-  it('returns default prompt when no custom prompt is saved', () => {
-    const info = getBasePrompt()
-    expect(info.isCustom).toBe(false)
-    expect(info.current).toBe(DEFAULT_BASE_PROMPT_TEMPLATE)
-    expect(info.defaultPrompt).toBe(DEFAULT_BASE_PROMPT_TEMPLATE)
+  it('returns default prompts for all keys when none are customized', () => {
+    const all = getAllPrompts()
+    expect(all.basePrompt.isCustom).toBe(false)
+    expect(all.basePrompt.current).toBe(DEFAULT_BASE_PROMPT_TEMPLATE)
+    expect(all.perTurnSuffix.isCustom).toBe(false)
+    expect(all.perTurnSuffix.current).toBe(DEFAULT_PER_TURN_SUFFIX_TEMPLATE)
+    expect(all.recoveryPrompt.isCustom).toBe(false)
+    expect(all.recoveryPrompt.current).toBe(DEFAULT_RECOVERY_PROMPT_TEMPLATE)
   })
 
-  it('saves and reads custom base prompt', () => {
-    const custom = 'My Custom Base Prompt for {{workspacePath}}\n{{availableTools}}'
-    saveBasePrompt(custom)
+  it('saves and reads custom prompts for all keys', () => {
+    savePrompt('basePrompt', 'Custom base for {{workspacePath}}')
+    savePrompt('perTurnSuffix', 'Custom suffix rule for: {{prompt}}')
+    savePrompt('recoveryPrompt', 'Custom recovery warning with {{details}}')
 
-    const info = getBasePrompt()
-    expect(info.isCustom).toBe(true)
-    expect(info.current).toBe(custom)
+    const all = getAllPrompts()
+    expect(all.basePrompt.isCustom).toBe(true)
+    expect(all.basePrompt.current).toBe('Custom base for {{workspacePath}}')
+    expect(all.perTurnSuffix.isCustom).toBe(true)
+    expect(all.perTurnSuffix.current).toBe('Custom suffix rule for: {{prompt}}')
+    expect(all.recoveryPrompt.isCustom).toBe(true)
+    expect(all.recoveryPrompt.current).toBe('Custom recovery warning with {{details}}')
   })
 
-  it('resets base prompt back to default', () => {
+  it('resets a single prompt key while keeping others customized', () => {
+    savePrompt('basePrompt', 'Custom base prompt')
+    savePrompt('perTurnSuffix', 'Custom suffix rule')
+
+    resetPrompt('basePrompt')
+
+    const all = getAllPrompts()
+    expect(all.basePrompt.isCustom).toBe(false)
+    expect(all.basePrompt.current).toBe(DEFAULT_BASE_PROMPT_TEMPLATE)
+    expect(all.perTurnSuffix.isCustom).toBe(true)
+    expect(all.perTurnSuffix.current).toBe('Custom suffix rule')
+  })
+
+  it('resets all prompts at once', () => {
+    savePrompt('basePrompt', 'Custom base')
+    savePrompt('perTurnSuffix', 'Custom suffix')
+    savePrompt('recoveryPrompt', 'Custom recovery')
+
+    const reset = resetAllPrompts()
+    expect(reset.basePrompt.isCustom).toBe(false)
+    expect(reset.perTurnSuffix.isCustom).toBe(false)
+    expect(reset.recoveryPrompt.isCustom).toBe(false)
+  })
+
+  it('migrates legacy base-prompt.txt seamlessly if custom-prompts.json does not exist', () => {
+    fs.writeFileSync(promptFile, 'Legacy custom base prompt content', 'utf8')
+
+    const all = getAllPrompts()
+    expect(all.basePrompt.isCustom).toBe(true)
+    expect(all.basePrompt.current).toBe('Legacy custom base prompt content')
+  })
+
+  it('resets base prompt back to default via legacy helper', () => {
     saveBasePrompt('Temporary custom prompt')
     expect(getBasePrompt().isCustom).toBe(true)
 

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { X, Wrench, Terminal, FileText, Search, Network, FileEdit, Clock, Sliders, Zap, Check, Sparkles, Key, Eye, EyeOff, ExternalLink } from 'lucide-react'
+import { X, Wrench, Terminal, FileText, Search, Network, FileEdit, Clock, Sliders, Zap, Check, Sparkles, Key, Eye, EyeOff, ExternalLink, RotateCcw, AlertTriangle } from 'lucide-react'
 import { useToolsStore } from '../../stores/tools-store'
 import { useSessionStore } from '../../stores/session-store'
-import type { CustomToolsConfig, FileSuggestionSettings, AiProviderId, ChatProviderId, AiProviderInfo, BasePromptInfo } from '@shared/types'
+import type { CustomToolsConfig, FileSuggestionSettings, AiProviderId, ChatProviderId, AiProviderInfo, BasePromptInfo, PromptKey, AllPromptsInfo } from '@shared/types'
 
 export const CustomToolsModal: React.FC = () => {
   const { isOpen, config, closeModal, toggleTool, loadConfig } = useToolsStore()
@@ -20,6 +20,21 @@ export const CustomToolsModal: React.FC = () => {
   const [showTypesafeKey, setShowTypesafeKey] = useState(false)
   const [typesafeSavedMessage, setTypesafeSavedMessage] = useState(false)
 
+  const [promptsData, setPromptsData] = useState<AllPromptsInfo | null>(null)
+  const [activePromptKey, setActivePromptKey] = useState<PromptKey>('basePrompt')
+  const [promptDrafts, setPromptDrafts] = useState<Record<PromptKey, string>>({
+    basePrompt: '',
+    perTurnSuffix: '',
+    recoveryPrompt: '',
+  })
+  const [promptSavedMessage, setPromptSavedMessage] = useState<Record<PromptKey, boolean>>({
+    basePrompt: false,
+    perTurnSuffix: false,
+    recoveryPrompt: false,
+  })
+  const [resetAllMessage, setResetAllMessage] = useState(false)
+
+  // Backward compatibility fallback state
   const [basePrompt, setBasePrompt] = useState<BasePromptInfo | null>(null)
   const [basePromptDraft, setBasePromptDraft] = useState<string>('')
   const [basePromptSavedMessage, setBasePromptSavedMessage] = useState(false)
@@ -48,10 +63,23 @@ export const CustomToolsModal: React.FC = () => {
       window.agentApi.getAiProviders().then((p) => {
         setAiProviders(p)
       }).catch(() => {})
-      window.agentApi.getBasePrompt().then((bp) => {
-        setBasePrompt(bp)
-        setBasePromptDraft(bp.current)
-      }).catch(() => {})
+      if (window.agentApi.getPrompts) {
+        window.agentApi.getPrompts().then((data) => {
+          setPromptsData(data)
+          setPromptDrafts({
+            basePrompt: data.basePrompt.current,
+            perTurnSuffix: data.perTurnSuffix.current,
+            recoveryPrompt: data.recoveryPrompt.current,
+          })
+          setBasePrompt(data.basePrompt)
+          setBasePromptDraft(data.basePrompt.current)
+        }).catch(() => {})
+      } else if (window.agentApi.getBasePrompt) {
+        window.agentApi.getBasePrompt().then((bp) => {
+          setBasePrompt(bp)
+          setBasePromptDraft(bp.current)
+        }).catch(() => {})
+      }
     }
   }, [isOpen])
 
@@ -237,26 +265,61 @@ export const CustomToolsModal: React.FC = () => {
     setTypesafeKeyDraft('')
   }
 
-  const handleSaveBasePrompt = async () => {
-    if (!window.agentApi?.saveBasePrompt) return
-    const updated = await window.agentApi.saveBasePrompt(basePromptDraft)
-    setBasePrompt(updated)
-    setBasePromptDraft(updated.current)
-    setBasePromptSavedMessage(true)
-    setTimeout(() => setBasePromptSavedMessage(false), 2500)
+  const handleSavePrompt = async (key: PromptKey) => {
+    if (!window.agentApi?.savePrompt) return
+    const draft = promptDrafts[key] ?? ''
+    const updated = await window.agentApi.savePrompt(key, draft)
+    setPromptsData(updated)
+    setPromptDrafts((prev) => ({ ...prev, [key]: updated[key].current }))
+    setPromptSavedMessage((prev) => ({ ...prev, [key]: true }))
+    setTimeout(() => setPromptSavedMessage((prev) => ({ ...prev, [key]: false })), 2500)
+    if (key === 'basePrompt') {
+      setBasePrompt(updated.basePrompt)
+      setBasePromptDraft(updated.basePrompt.current)
+    }
   }
 
-  const handleResetBasePrompt = async () => {
-    if (!window.agentApi?.resetBasePrompt) return
-    const updated = await window.agentApi.resetBasePrompt()
-    setBasePrompt(updated)
-    setBasePromptDraft(updated.current)
-    setBasePromptSavedMessage(true)
-    setTimeout(() => setBasePromptSavedMessage(false), 2500)
+  const handleResetPrompt = async (key: PromptKey) => {
+    if (!window.agentApi?.resetPrompt) return
+    const updated = await window.agentApi.resetPrompt(key)
+    setPromptsData(updated)
+    setPromptDrafts((prev) => ({ ...prev, [key]: updated[key].current }))
+    setPromptSavedMessage((prev) => ({ ...prev, [key]: true }))
+    setTimeout(() => setPromptSavedMessage((prev) => ({ ...prev, [key]: false })), 2500)
+    if (key === 'basePrompt') {
+      setBasePrompt(updated.basePrompt)
+      setBasePromptDraft(updated.basePrompt.current)
+    }
+  }
+
+  const handleResetAllPrompts = async () => {
+    if (!window.agentApi?.resetAllPrompts) return
+    const updated = await window.agentApi.resetAllPrompts()
+    setPromptsData(updated)
+    setPromptDrafts({
+      basePrompt: updated.basePrompt.current,
+      perTurnSuffix: updated.perTurnSuffix.current,
+      recoveryPrompt: updated.recoveryPrompt.current,
+    })
+    setBasePrompt(updated.basePrompt)
+    setBasePromptDraft(updated.basePrompt.current)
+    setResetAllMessage(true)
+    setTimeout(() => setResetAllMessage(false), 2500)
   }
 
   const insertPromptPlaceholder = (placeholder: string) => {
-    setBasePromptDraft((prev) => (prev ? `${prev}\n${placeholder}` : placeholder))
+    setPromptDrafts((prev) => ({
+      ...prev,
+      [activePromptKey]: prev[activePromptKey] ? `${prev[activePromptKey]}\n${placeholder}` : placeholder,
+    }))
+  }
+
+  const handleSaveBasePrompt = async () => {
+    await handleSavePrompt('basePrompt')
+  }
+
+  const handleResetBasePrompt = async () => {
+    await handleResetPrompt('basePrompt')
   }
 
   const toolItems = [
@@ -376,7 +439,7 @@ export const CustomToolsModal: React.FC = () => {
             }`}
           >
             <FileText size={13} />
-            <span>Base Prompt</span>
+            <span>Prompts</span>
           </button>
         </div>
 
@@ -1176,90 +1239,191 @@ export const CustomToolsModal: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 4: Base Prompt Editor */}
+        {/* Tab 4: Universal Prompts Editor */}
         {activeTab === 'prompt' && (
-          <div className="p-4 space-y-3 max-h-[65vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-200">System Base Prompt</span>
-                  {basePrompt?.isCustom ? (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      Custom Active
-                    </span>
-                  ) : (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                      Default
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  The foundational system prompt sent to the LLM on the initial turn.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleResetBasePrompt}
-                  className="px-2.5 py-1 text-xs text-slate-400 hover:text-slate-200 bg-[#16181d] hover:bg-[#2a2f38] border border-[#2c3038] rounded transition cursor-pointer"
-                  title="Reset to default system prompt"
-                >
-                  Reset Default
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveBasePrompt}
-                  className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-sky-600 hover:bg-sky-500 text-white rounded transition cursor-pointer"
-                >
-                  {basePromptSavedMessage ? (
-                    <>
-                      <Check size={12} className="text-emerald-300" />
-                      <span>Saved!</span>
-                    </>
-                  ) : (
-                    <span>Save Prompt</span>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Placeholder info chips */}
-            <div className="p-2.5 rounded-lg border border-[#2c3038] bg-[#16181d] space-y-1.5">
-              <span className="text-[11px] font-medium text-slate-300 block">
-                Dynamic Placeholders (Click to insert):
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { tag: '{{workspacePath}}', desc: 'Workspace absolute path' },
-                  { tag: '{{projectContext}}', desc: 'Auto-retrieved codebase context' },
-                  { tag: '{{availableTools}}', desc: 'Enabled tools schema & parameters' },
-                ].map((ph) => (
+          <div className="p-4 space-y-3.5 max-h-[65vh] overflow-y-auto">
+            {/* Sub-tab Pill Navigation */}
+            <div className="flex items-center gap-1.5 p-1 bg-[#16181d] rounded-lg border border-[#2c3038]">
+              {[
+                {
+                  key: 'basePrompt' as PromptKey,
+                  label: 'Initial System Prompt',
+                  icon: <Terminal size={13} />,
+                  isCustom: promptsData?.basePrompt?.isCustom,
+                },
+                {
+                  key: 'perTurnSuffix' as PromptKey,
+                  label: 'Per-Turn Format Rule',
+                  icon: <FileText size={13} />,
+                  isCustom: promptsData?.perTurnSuffix?.isCustom,
+                },
+                {
+                  key: 'recoveryPrompt' as PromptKey,
+                  label: 'Recovery Warning Prompt',
+                  icon: <AlertTriangle size={13} />,
+                  isCustom: promptsData?.recoveryPrompt?.isCustom,
+                },
+              ].map((tab) => {
+                const isSelected = activePromptKey === tab.key
+                return (
                   <button
-                    key={ph.tag}
+                    key={tab.key}
                     type="button"
-                    onClick={() => insertPromptPlaceholder(ph.tag)}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#1e2127] hover:bg-[#2a2f38] border border-[#2c3038] hover:border-sky-500/50 rounded text-[11px] font-mono text-sky-300 transition cursor-pointer"
-                    title={`Insert ${ph.desc}`}
+                    onClick={() => setActivePromptKey(tab.key)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs font-medium transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-sky-600 text-white shadow-xs'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-[#1e2127]'
+                    }`}
                   >
-                    <span>{ph.tag}</span>
-                    <span className="text-[10px] text-slate-500 font-sans">({ph.desc})</span>
+                    {tab.icon}
+                    <span className="truncate">{tab.label}</span>
+                    {tab.isCustom && (
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-amber-300' : 'bg-amber-400'}`}
+                        title="Custom template active"
+                      />
+                    )}
                   </button>
-                ))}
-              </div>
+                )
+              })}
             </div>
 
-            {/* Prompt Editor */}
-            <div className="relative">
-              <textarea
-                value={basePromptDraft}
-                onChange={(e) => setBasePromptDraft(e.target.value)}
-                rows={16}
-                spellCheck={false}
-                placeholder="Enter autonomous base prompt template..."
-                className="w-full bg-[#16181d] border border-[#2c3038] rounded-lg p-3 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 leading-relaxed resize-y min-h-[300px]"
-              />
-            </div>
+            {/* Selected Prompt Content */}
+            {(() => {
+              const tabMeta = {
+                basePrompt: {
+                  title: 'Initial System Base Prompt',
+                  desc: 'Sent on Turn 1 to establish agent identity, workspace boundaries, and active tool schemas.',
+                  placeholders: [
+                    { tag: '{{workspacePath}}', desc: 'Workspace absolute path' },
+                    { tag: '{{projectContext}}', desc: 'Auto-retrieved codebase context' },
+                    { tag: '{{availableTools}}', desc: 'Active tools schemas & params' },
+                  ],
+                },
+                perTurnSuffix: {
+                  title: 'Per-Turn Suffix & Format Rule',
+                  desc: 'Appended to every prompt sent to web chat (strict tool JSON format & turn guidelines).',
+                  placeholders: [
+                    { tag: '{{prompt}}', desc: 'Wraps incoming prompt (optional)' },
+                  ],
+                },
+                recoveryPrompt: {
+                  title: 'Autonomous Recovery Warning Prompt',
+                  desc: 'Sent when the model replies in plain text or invalid JSON format during recovery attempts (1..3).',
+                  placeholders: [
+                    { tag: '{{details}}', desc: 'Specific format error or doubt reason' },
+                    { tag: '{{availableTools}}', desc: 'Active tools schemas & params' },
+                  ],
+                },
+              }[activePromptKey]
+
+              const currentInfo = promptsData?.[activePromptKey]
+              const isCustom = currentInfo?.isCustom ?? false
+              const currentDraft = promptDrafts[activePromptKey] ?? ''
+              const isSaved = promptSavedMessage[activePromptKey]
+
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-slate-200">{tabMeta.title}</span>
+                        {isCustom ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            Custom Active
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                            Default
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{tabMeta.desc}</p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleResetPrompt(activePromptKey)}
+                        className="px-2.5 py-1 text-xs text-slate-400 hover:text-slate-200 bg-[#16181d] hover:bg-[#2a2f38] border border-[#2c3038] rounded transition cursor-pointer"
+                        title="Reset this prompt to default"
+                      >
+                        Reset Default
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSavePrompt(activePromptKey)}
+                        className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium bg-sky-600 hover:bg-sky-500 text-white rounded transition cursor-pointer"
+                      >
+                        {isSaved ? (
+                          <>
+                            <Check size={12} className="text-emerald-300" />
+                            <span>Saved!</span>
+                          </>
+                        ) : (
+                          <span>Save Prompt</span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Placeholders chips */}
+                  <div className="p-2.5 rounded-lg border border-[#2c3038] bg-[#16181d] space-y-1.5">
+                    <span className="text-[11px] font-medium text-slate-300 block">
+                      Dynamic Placeholders (Click to insert):
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tabMeta.placeholders.map((ph) => (
+                        <button
+                          key={ph.tag}
+                          type="button"
+                          onClick={() => insertPromptPlaceholder(ph.tag)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#1e2127] hover:bg-[#2a2f38] border border-[#2c3038] hover:border-sky-500/50 rounded text-[11px] font-mono text-sky-300 transition cursor-pointer"
+                          title={`Insert ${ph.desc}`}
+                        >
+                          <span>{ph.tag}</span>
+                          <span className="text-[10px] text-slate-500 font-sans">({ph.desc})</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Prompt Editor */}
+                  <div className="relative">
+                    <textarea
+                      value={currentDraft}
+                      onChange={(e) =>
+                        setPromptDrafts((prev) => ({
+                          ...prev,
+                          [activePromptKey]: e.target.value,
+                        }))
+                      }
+                      rows={14}
+                      spellCheck={false}
+                      placeholder={`Enter custom ${tabMeta.title} template...`}
+                      className="w-full bg-[#16181d] border border-[#2c3038] rounded-lg p-3 text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 leading-relaxed resize-y min-h-[260px]"
+                    />
+                  </div>
+
+                  {/* Reset All Utility */}
+                  <div className="flex items-center justify-between pt-1 border-t border-[#22252c] text-[11px] text-slate-500">
+                    <span>
+                      {currentDraft.length} chars • {currentDraft.split('\n').length} lines
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleResetAllPrompts}
+                      className="flex items-center gap-1 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                      title="Reset all prompts back to factory defaults"
+                    >
+                      <RotateCcw size={11} />
+                      <span>{resetAllMessage ? 'All Reset to Default!' : 'Reset All Prompts to Default'}</span>
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         )}
 

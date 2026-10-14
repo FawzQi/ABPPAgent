@@ -10,7 +10,7 @@ import { FilesystemTools } from '../tools/filesystem'
 import { DirectoryExplorer } from '../tools/explorer'
 import { CustomToolsService, getExtendedEnv } from '../tools/custom-tools'
 import { generateCodebaseContext } from './codebase-context'
-import { getBasePrompt } from './base-prompt'
+import { getBasePrompt, getAllPrompts } from './base-prompt'
 import { validateCall, checkReread, fileInfo, forget, typecheck } from './workspace-state'
 
 export interface OrchestratorCallbacks {
@@ -162,13 +162,14 @@ export class AgentOrchestrator {
     // Generate codebase context (GitNexus + BM25 + recency) for basis context on every user prompt
     const codebaseContext = await generateCodebaseContext(session.workspacePath, userText)
 
+    const prompts = getAllPrompts()
+
     if (isFirstTurn) {
-      const basePromptData = getBasePrompt()
       const sysPrompt = buildSystemPrompt(
         session.workspacePath,
         codebaseContext || undefined,
         session.customTools,
-        basePromptData.current,
+        prompts.basePrompt.current,
       )
       promptToSend = `${sysPrompt}\n\n# User Goal\n${userText}`
     } else if (codebaseContext) {
@@ -178,7 +179,7 @@ export class AgentOrchestrator {
     }
 
     // Append mandatory tool JSON format rule to the bottom of the prompt
-    promptToSend = appendToolJsonFormatRule(promptToSend)
+    promptToSend = appendToolJsonFormatRule(promptToSend, prompts.perTurnSuffix.current)
 
     try {
       await this.runLoop(session, promptToSend, abortController.signal)
@@ -246,7 +247,8 @@ export class AgentOrchestrator {
       if (signal.aborted) break
 
       // 1. Deliver prompt to web chat (with mandatory tool JSON rule at the bottom) and wait for scraped response
-      const promptToDeliver = appendToolJsonFormatRule(currentPrompt)
+      const prompts = getAllPrompts()
+      const promptToDeliver = appendToolJsonFormatRule(currentPrompt, prompts.perTurnSuffix.current)
       const sendResult = await sendToWebChat(
         session.targetId,
         promptToDeliver,
@@ -315,7 +317,7 @@ export class AgentOrchestrator {
           SessionRepository.saveTimelineItem(warnItem)
           this.callbacks?.onTimelineUpdate(warnItem)
 
-          currentPrompt = buildToolFormatWarningPrompt(session.customTools, issue)
+          currentPrompt = buildToolFormatWarningPrompt(session.customTools, issue, prompts.recoveryPrompt.current)
           continue
         }
 

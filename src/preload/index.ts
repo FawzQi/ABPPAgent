@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from '@shared/ipc-channels'
-import type { AgentApi, Session, TimelineItem, WebChatTargetId, WebChatTargetInfo, WorkspaceFileChange } from '@shared/types'
+import type { AgentApi, Session, TimelineItem, WebChatTargetId, WebChatTargetInfo, WorkspaceFileChange, PromptKey } from '@shared/types'
 
 const agentApi: AgentApi = {
   getSessions: () => ipcRenderer.invoke(IPC_CHANNELS.GET_SESSIONS),
@@ -62,7 +62,17 @@ const agentApi: AgentApi = {
   getAiProviders: () =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_AI_PROVIDERS),
 
-  // Base Prompt Settings
+  // Prompt Settings
+  getPrompts: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_PROMPTS),
+  savePrompt: (key: PromptKey, prompt: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_PROMPT, key, prompt),
+  resetPrompt: (key: PromptKey) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RESET_PROMPT, key),
+  resetAllPrompts: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.RESET_ALL_PROMPTS),
+
+  // Base Prompt Settings (backward compatibility)
   getBasePrompt: () =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_BASE_PROMPT),
   saveBasePrompt: (prompt: string) =>

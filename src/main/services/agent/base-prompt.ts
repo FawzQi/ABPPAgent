@@ -1,6 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { getStorageDir } from '../db/database'
+import type { PromptKey, PromptItemInfo, AllPromptsInfo, BasePromptInfo } from '../../../shared/types'
 
 export const DEFAULT_BASE_PROMPT_TEMPLATE = `# Autonomous Software Engineering Agent
 You are an expert autonomous software engineering agent running inside the user's workspace.
@@ -61,53 +62,234 @@ When your entire task is finished and verified, reply with the finish call (this
 Never reply with unfinished promises or vague statements.
 - Follow the simplicity rule: touch only what you must, do not add unnecessary abstractions or speculative code.`
 
-function getPromptFilePath(): string {
+export const DEFAULT_PER_TURN_SUFFIX_TEMPLATE = `---
+### Strict Response Requirement (MANDATORY)
+You MUST respond with a valid JSON tool call object (or a JSON array if batching multiple tools).
+Do NOT include conversational narration, explanations, or code outside the tool JSON format.
+Every response MUST follow this exact format:
+\`\`\`json
+{
+  "thought": "Brief step-by-step reasoning explaining what you are doing",
+  "tool_call_name": "<name of tool from AVAILABLE TOOLS>",
+  "parameter": { ... }
+}
+\`\`\`
+
+If your task is complete and verified, you MUST invoke the "finish" tool:
+\`\`\`json
+{
+  "thought": "The requested task is complete and verified",
+  "tool_call_name": "finish",
+  "parameter": { "summary": "Concise summary of what was done" }
+}
+\`\`\``
+
+export const DEFAULT_RECOVERY_PROMPT_TEMPLATE = `# WARNING: Response Must Be in Tools JSON Format!
+
+Your previous response did NOT include a valid JSON tool call. You must reply strictly in the tools JSON format. Do not send conversational commentary without a tool call.
+{{details}}
+## Required Response Format:
+\`\`\`json
+{
+  "thought": "Step-by-step reasoning explaining why you are invoking this tool",
+  "tool_call_name": "<tool_name>",
+  "parameter": { ... }
+}
+\`\`\`
+
+Or for multiple batched calls:
+\`\`\`json
+[
+  {
+    "thought": "First action reasoning",
+    "tool_call_name": "<tool_1>",
+    "parameter": { ... }
+  },
+  {
+    "thought": "Second action reasoning",
+    "tool_call_name": "<tool_2>",
+    "parameter": { ... }
+  }
+]
+\`\`\`
+
+If the user's task is already complete or no more actions are needed, call the "finish" tool:
+\`\`\`json
+{
+  "thought": "The requested task is complete",
+  "tool_call_name": "finish",
+  "parameter": { "summary": "Description of work done" }
+}
+\`\`\`
+
+## Complete Available Tools & Parameter Schemas:
+{{availableTools}}
+
+Please provide your response now in the required tool JSON format.`
+
+export const DEFAULT_PROMPT_TEMPLATES: Record<PromptKey, string> = {
+  basePrompt: DEFAULT_BASE_PROMPT_TEMPLATE,
+  perTurnSuffix: DEFAULT_PER_TURN_SUFFIX_TEMPLATE,
+  recoveryPrompt: DEFAULT_RECOVERY_PROMPT_TEMPLATE,
+}
+
+function getPromptsFilePath(): string {
+  return path.join(getStorageDir(), 'custom-prompts.json')
+}
+
+function getLegacyPromptFilePath(): string {
   return path.join(getStorageDir(), 'base-prompt.txt')
 }
 
-export function getBasePrompt(): { current: string; defaultPrompt: string; isCustom: boolean } {
+function readStoredPrompts(): Partial<Record<PromptKey, string>> {
   try {
-    const file = getPromptFilePath()
-    if (fs.existsSync(file)) {
-      const content = fs.readFileSync(file, 'utf8')
-      if (content && content.trim().length > 0) {
-        return {
-          current: content,
-          defaultPrompt: DEFAULT_BASE_PROMPT_TEMPLATE,
-          isCustom: true,
-        }
+    const jsonFile = getPromptsFilePath()
+    if (fs.existsSync(jsonFile)) {
+      const raw = fs.readFileSync(jsonFile, 'utf8')
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object') {
+        return parsed
       }
     }
   } catch {
-    // ignore read error and fall back to default
+    // fallback below
   }
 
-  return {
-    current: DEFAULT_BASE_PROMPT_TEMPLATE,
-    defaultPrompt: DEFAULT_BASE_PROMPT_TEMPLATE,
-    isCustom: false,
+  // Backward compatibility migration from legacy base-prompt.txt
+  try {
+    const legacyFile = getLegacyPromptFilePath()
+    if (fs.existsSync(legacyFile)) {
+      const content = fs.readFileSync(legacyFile, 'utf8')
+      if (content && content.trim().length > 0) {
+        return { basePrompt: content }
+      }
+    }
+  } catch {
+    // ignore
   }
+
+  return {}
 }
 
-export function saveBasePrompt(prompt: string): void {
-  const file = getPromptFilePath()
+function writeStoredPrompts(stored: Partial<Record<PromptKey, string>>): void {
+  const file = getPromptsFilePath()
   const dir = path.dirname(file)
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true })
   }
+
   const tmp = `${file}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`
-  fs.writeFileSync(tmp, prompt, 'utf8')
+  fs.writeFileSync(tmp, JSON.stringify(stored, null, 2), 'utf8')
   fs.renameSync(tmp, file)
 }
 
-export function resetBasePrompt(): string {
+export function getAllPrompts(): AllPromptsInfo {
+  const stored = readStoredPrompts()
+
+  const buildItem = (key: PromptKey): PromptItemInfo => {
+    const defaultTemplate = DEFAULT_PROMPT_TEMPLATES[key]
+    const customValue = stored[key]
+    const hasCustom = Boolean(customValue && customValue.trim().length > 0 && customValue !== defaultTemplate)
+
+    return {
+      current: hasCustom && customValue ? customValue : defaultTemplate,
+      defaultPrompt: defaultTemplate,
+      isCustom: hasCustom,
+    }
+  }
+
+  return {
+    basePrompt: buildItem('basePrompt'),
+    perTurnSuffix: buildItem('perTurnSuffix'),
+    recoveryPrompt: buildItem('recoveryPrompt'),
+  }
+}
+
+export function getPrompt(key: PromptKey): PromptItemInfo {
+  return getAllPrompts()[key]
+}
+
+export function savePrompt(key: PromptKey, prompt: string): AllPromptsInfo {
+  const stored = readStoredPrompts()
+  const defaultTemplate = DEFAULT_PROMPT_TEMPLATES[key]
+
+  if (prompt && prompt.trim().length > 0 && prompt.trim() !== defaultTemplate.trim()) {
+    stored[key] = prompt
+  } else {
+    delete stored[key]
+  }
+
+  writeStoredPrompts(stored)
+
+  // If basePrompt was saved, also keep base-prompt.txt in sync for legacy readers
+  if (key === 'basePrompt') {
+    try {
+      const legacyFile = getLegacyPromptFilePath()
+      if (stored.basePrompt) {
+        fs.writeFileSync(legacyFile, stored.basePrompt, 'utf8')
+      } else if (fs.existsSync(legacyFile)) {
+        fs.unlinkSync(legacyFile)
+      }
+    } catch {
+      // ignore legacy file write failure
+    }
+  }
+
+  return getAllPrompts()
+}
+
+export function resetPrompt(key: PromptKey): AllPromptsInfo {
+  const stored = readStoredPrompts()
+  delete stored[key]
+  writeStoredPrompts(stored)
+
+  if (key === 'basePrompt') {
+    try {
+      const legacyFile = getLegacyPromptFilePath()
+      if (fs.existsSync(legacyFile)) {
+        fs.unlinkSync(legacyFile)
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return getAllPrompts()
+}
+
+export function resetAllPrompts(): AllPromptsInfo {
   try {
-    const file = getPromptFilePath()
-    if (fs.existsSync(file)) {
-      fs.unlinkSync(file)
+    const jsonFile = getPromptsFilePath()
+    if (fs.existsSync(jsonFile)) {
+      fs.unlinkSync(jsonFile)
     }
   } catch {
-    // ignore unlink error
+    // ignore
   }
+
+  try {
+    const legacyFile = getLegacyPromptFilePath()
+    if (fs.existsSync(legacyFile)) {
+      fs.unlinkSync(legacyFile)
+    }
+  } catch {
+    // ignore
+  }
+
+  return getAllPrompts()
+}
+
+// Backward compatibility functions
+export function getBasePrompt(): BasePromptInfo {
+  return getPrompt('basePrompt')
+}
+
+export function saveBasePrompt(prompt: string): BasePromptInfo {
+  const all = savePrompt('basePrompt', prompt)
+  return all.basePrompt
+}
+
+export function resetBasePrompt(): string {
+  resetPrompt('basePrompt')
   return DEFAULT_BASE_PROMPT_TEMPLATE
 }

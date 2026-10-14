@@ -231,6 +231,16 @@ export const DEFAULT_FILE_SUGGESTION_SETTINGS: FileSuggestionSettings = {
   hydeModel: 'deepseek-flash',
 }
 
+export type PromptKey = 'basePrompt' | 'perTurnSuffix' | 'recoveryPrompt'
+
+export interface PromptItemInfo {
+  current: string
+  defaultPrompt: string
+  isCustom: boolean
+}
+
+export type AllPromptsInfo = Record<PromptKey, PromptItemInfo>
+
 export interface BasePromptInfo {
   current: string
   defaultPrompt: string
@@ -283,7 +293,13 @@ export interface AgentApi {
   saveFileSuggestionSettings: (updates: FileSuggestionSettingsSaveRequest) => Promise<FileSuggestionSettings>
   getAiProviders: () => Promise<AiProviderInfo[]>
 
-  // Base Prompt Settings
+  // Prompt Settings
+  getPrompts: () => Promise<AllPromptsInfo>
+  savePrompt: (key: PromptKey, prompt: string) => Promise<AllPromptsInfo>
+  resetPrompt: (key: PromptKey) => Promise<AllPromptsInfo>
+  resetAllPrompts: () => Promise<AllPromptsInfo>
+
+  // Base Prompt Settings (backward compatibility)
   getBasePrompt: () => Promise<BasePromptInfo>
   saveBasePrompt: (prompt: string) => Promise<BasePromptInfo>
   resetBasePrompt: () => Promise<BasePromptInfo>

@@ -37,6 +37,25 @@ describe('prompt formatting and tools rule helpers', () => {
     expect(matches?.length).toBe(1)
   })
 
+  it('supports custom per-turn suffix and prevents duplicating custom suffix', () => {
+    const prompt = 'Do task A'
+    const customSuffix = '### My Custom Format\nAlways reply with { "custom": true }'
+
+    const result = appendToolJsonFormatRule(prompt, customSuffix)
+    expect(result).toBe(`${prompt}\n\n${customSuffix}`)
+
+    const repeated = appendToolJsonFormatRule(result, customSuffix)
+    expect(repeated).toBe(result)
+  })
+
+  it('interpolates {{prompt}} when custom per-turn suffix contains the placeholder', () => {
+    const prompt = 'Fix bug in login'
+    const customSuffixWithPlaceholder = '# System Wrapper\nGoal:\n{{prompt}}\n\nRule: Output JSON only.'
+
+    const result = appendToolJsonFormatRule(prompt, customSuffixWithPlaceholder)
+    expect(result).toBe('# System Wrapper\nGoal:\nFix bug in login\n\nRule: Output JSON only.')
+  })
+
   it('builds a warning prompt with complete tool list format when LLM fails to reply in tool format', () => {
     const warning = buildToolFormatWarningPrompt(DEFAULT_CUSTOM_TOOLS_CONFIG, 'Response was plain text')
     expect(warning).toContain('# WARNING: Response Must Be in Tools JSON Format!')
@@ -46,6 +65,27 @@ describe('prompt formatting and tools rule helpers', () => {
     expect(warning).toContain('read_file')
     expect(warning).toContain('write_file')
     expect(warning).toContain('finish')
+  })
+
+  it('interpolates custom recovery prompt template with {{details}} and {{availableTools}}', () => {
+    const customRecovery = `# Custom Retry
+Error: {{details}}
+Active Tools:
+{{availableTools}}
+Please retry now.`
+
+    const warning = buildToolFormatWarningPrompt(
+      DEFAULT_CUSTOM_TOOLS_CONFIG,
+      'Invalid JSON syntax',
+      customRecovery,
+    )
+
+    expect(warning).toContain('# Custom Retry')
+    expect(warning).toContain('Invalid JSON syntax')
+    expect(warning).toContain('Active Tools:\n1. run_command')
+    expect(warning).toContain('Please retry now.')
+    expect(warning).not.toContain('{{details}}')
+    expect(warning).not.toContain('{{availableTools}}')
   })
 
   it('builds system prompt with available tools and strict output format instructions', () => {
